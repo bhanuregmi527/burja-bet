@@ -13,6 +13,38 @@ body {
   color: white;
 }
 
+/* Shared surfaces */
+.glass-card {
+  background: rgba(11, 17, 32, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.45), 0 0 24px rgba(20, 241, 149, 0.06);
+  backdrop-filter: blur(18px);
+}
+
+.grid-overlay {
+  position: relative;
+  isolation: isolate;
+}
+
+.grid-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(153, 69, 255, 0.08), transparent 45%),
+    radial-gradient(circle at 50% 65%, rgba(20, 241, 149, 0.08), transparent 45%),
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    28px 28px,
+    28px 28px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 a {
   color: inherit;
   text-decoration: none;

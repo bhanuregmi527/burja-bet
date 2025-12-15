@@ -6,7 +6,7 @@ import { SYMBOLS } from '@/lib/constants';
  */
 export function calculateResultSummary(
   diceResults: SymbolKey[],
-  selectedSymbol: SymbolKey,
+  selectedSymbols: SymbolKey[],
   betAmount: number
 ): ResultSummary | null {
   const counts = SYMBOLS.reduce<Record<SymbolKey, number>>((acc, s) => {
@@ -18,14 +18,26 @@ export function calculateResultSummary(
     counts[r] += 1;
   });
   
-  const matches = counts[selectedSymbol];
-  if (!matches) return null;
-  
-  const payoutMultiplier = matches + 1; // 1 match => 2x ... 6 => 7x
+  if (!selectedSymbols || selectedSymbols.length === 0) return null;
+
+  let totalMatches = 0;
+  let payout = 0;
+
+  selectedSymbols.forEach((sym) => {
+    const matches = counts[sym];
+    if (matches > 0) {
+      totalMatches += matches;
+      payout += betAmount * (matches + 1);
+    }
+  });
+
+  if (totalMatches === 0) return null;
+
+  const payoutMultiplier = betAmount > 0 ? payout / betAmount : 0;
   return {
-    matches,
+    matches: totalMatches,
     payoutMultiplier,
-    payout: betAmount * payoutMultiplier,
+    payout,
   };
 }
 

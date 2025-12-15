@@ -3,7 +3,7 @@ import type { SymbolKey, GamePhase, ResultSummary } from '@/lib/types';
 import { calculateResultSummary } from '@/utils/gameCalculations';
 
 export function useGame() {
-  const [selectedSymbol, setSelectedSymbol] = useState<SymbolKey>("crown");
+  const [selectedSymbols, setSelectedSymbols] = useState<SymbolKey[]>([]);
   const [betAmount, setBetAmount] = useState<number>(0.5);
   const [phase, setPhase] = useState<GamePhase>("lobby");
   const phaseRef = useRef<GamePhase>("lobby");
@@ -19,12 +19,12 @@ export function useGame() {
   };
 
   const resultSummary = useMemo<ResultSummary | null>(() => {
-    return calculateResultSummary(diceResults, selectedSymbol, betAmount);
-  }, [diceResults, selectedSymbol, betAmount]);
+    return calculateResultSummary(diceResults, selectedSymbols, betAmount);
+  }, [diceResults, selectedSymbols, betAmount]);
 
   return {
-    selectedSymbol,
-    setSelectedSymbol,
+    selectedSymbols,
+    setSelectedSymbols,
     betAmount,
     setBetAmount,
     phase,

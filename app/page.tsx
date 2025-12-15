@@ -9,6 +9,7 @@ import {
   Bolt,
   Wallet,
 } from "lucide-react";
+import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { SYMBOLS, marqueeItems, liveActivity, dicePlaceholders } from '@/lib/constants';
 import type { SymbolKey } from '@/lib/types';
@@ -18,10 +19,18 @@ import { useDiceRoll } from '@/hooks/useDiceRoll';
 import { getSymbolStyle } from '@/utils/symbolStyles';
 import { createSymbolTexture } from '@/utils/symbolTexture';
 import { WalletButton } from '@/components/WalletButton';
+import { useDeposit } from '@/hooks/useDeposit';
+import { useSolBalance } from '@/hooks/useSolBalance';
 
 export default function Home() {
   const { setVisible } = useWalletModal();
+  const { publicKey } = useWallet();
   const { user, isLoggingIn } = useAuth();
+  const { deposit } = useDeposit();
+  const { balance } = useSolBalance();
+  const [depositBusy, setDepositBusy] = useState(false);
+  const [depositStatus, setDepositStatus] = useState<string | null>(null);
+  const [depositSuccess, setDepositSuccess] = useState(false);
   
   const progressControls = useAnimation();
   const threeRef = useRef<HTMLDivElement | null>(null);
@@ -35,8 +44,8 @@ export default function Home() {
   const isRollingRef = useRef<boolean>(false);
 
   const {
-    selectedSymbol,
-    setSelectedSymbol,
+    selectedSymbols,
+    setSelectedSymbols,
     betAmount,
     setBetAmount,
     phase,
@@ -54,6 +63,63 @@ export default function Home() {
     setCountdown,
     resultSummary,
   } = useGame();
+
+  const toggleSymbol = (symbol: SymbolKey) => {
+    setSelectedSymbols((prev) =>
+      prev.includes(symbol)
+        ? prev.filter((s) => s !== symbol)
+        : [...prev, symbol]
+    );
+  };
+
+  const handleDeposit = async () => {
+    setDepositStatus(null);
+
+    if (!publicKey) {
+      setDepositStatus("Connect your wallet to deposit.");
+      setVisible(true);
+      return;
+    }
+
+    if (isLoggingIn) {
+      setDepositStatus("Please finish wallet sign-in...");
+      return;
+    }
+
+    if (!user) {
+      setDepositStatus("Sign in with your wallet to continue.");
+      setVisible(true);
+      return;
+    }
+
+    if (!selectedSymbols || selectedSymbols.length === 0) {
+      setDepositStatus("Select at least one symbol before depositing.");
+      return;
+    }
+
+    if (!betAmount || betAmount <= 0) {
+      setDepositStatus("Enter an amount greater than 0.");
+      return;
+    }
+
+    if (balance !== null && betAmount > balance) {
+      setDepositStatus("Insufficient balance for this deposit.");
+      return;
+    }
+
+    setDepositBusy(true);
+    try {
+      await deposit(betAmount);
+      setDepositStatus("Deposit submitted. Please approve in wallet (if prompted).");
+      setDepositSuccess(true);
+      setTimeout(() => setDepositSuccess(false), 2500);
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDepositStatus(`Deposit failed: ${message}`);
+    } finally {
+      setDepositBusy(false);
+    }
+  };
 
   const { handleRoll } = useDiceRoll({
     rolling,
@@ -423,43 +489,61 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#0b1120] text-white">
       <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_20%,rgba(20,241,149,0.08),transparent_25%),radial-gradient(circle_at_80%_30%,rgba(153,69,255,0.08),transparent_25%),radial-gradient(circle_at_50%_80%,rgba(52,211,153,0.05),transparent_25%)]" />
-      <header className="relative border-b border-white/5 bg-gradient-to-b from-white/5 via-[#0f172a]/60 to-transparent backdrop-blur-xl">
-        <div className="px-6 pt-3">
-          <div className="overflow-hidden rounded-full border border-white/10 bg-white/5 px-4 py-2">
+      {depositSuccess && (
+        <div className="fixed left-1/2 top-4 z-[9999] -translate-x-1/2 rounded-xl border border-[#14F195]/50 bg-[#0b1120] px-4 py-3 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#14F195]">
+            ✅ Deposit successful
+          </div>
+        </div>
+      )}
+      <header className="sticky top-0 z-30 border-b border-white/5 bg-[#0b1120]/80 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+        <div className="px-4 py-2">
+          <div className="overflow-hidden rounded-full border border-white/10 bg-white/5 px-4 py-1.5">
             <motion.div
-              className="flex gap-8 whitespace-nowrap text-sm text-slate-200"
+              className="flex gap-6 whitespace-nowrap text-xs text-slate-200"
               animate={{ x: ["0%", "-50%"] }}
               transition={{ repeat: Infinity, duration: 18, ease: "linear" }}
             >
               {[...marqueeItems, ...marqueeItems].map((item, idx) => (
                 <span key={idx} className="flex items-center gap-2">
-                  <Bolt className="h-4 w-4 text-[#14F195]" />
+                  <Bolt className="h-3 w-3 text-[#14F195]" />
                   {item}
                 </span>
               ))}
             </motion.div>
           </div>
         </div>
-        <div className="relative mx-auto flex max-w-6xl items-center pl-6 pr-4 py-4">
+        <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-            <div className="relative h-12 w-12 overflow-hidden rounded-xl border border-[#14F195]/40 bg-gradient-to-br from-[#14F195]/20 via-[#0f172a] to-[#9945FF]/40 shadow-[0_0_32px_rgba(20,241,149,0.3)]">
-              <div className="absolute inset-0 bg-[conic-gradient(from_90deg_at_50%_50%,rgba(20,241,149,0.35),rgba(153,69,255,0.35),rgba(20,241,149,0.35))] opacity-50" />
-              <div className="relative flex h-full w-full items-center justify-center text-xl font-semibold tracking-tight">
+            <div className="relative h-11 w-11 overflow-hidden rounded-xl border border-[#14F195]/40 bg-gradient-to-br from-[#14F195]/20 via-[#0f172a] to-[#9945FF]/35 shadow-[0_0_28px_rgba(20,241,149,0.25)]">
+              <div className="absolute inset-0 bg-[conic-gradient(from_90deg_at_50%_50%,rgba(20,241,149,0.35),rgba(153,69,255,0.25),rgba(20,241,149,0.35))] opacity-50" />
+              <div className="relative flex h-full w-full items-center justify-center text-lg font-semibold tracking-tight">
                 🎲
               </div>
             </div>
             <div>
-              <p className="text-lg font-semibold">BurjaBet</p>
+              <p className="text-base font-semibold">BurjaBet</p>
               <p className="text-xs text-slate-400">Solana Langur Burja</p>
             </div>
           </div>
-        </div>
-        <div className="absolute top-1/2 -translate-y-1/2" style={{ top: 'calc(50% + 20px)', right: '50px' }}>
-          <WalletButton />
+
+          <div className="flex items-center gap-3 text-xs text-slate-200">
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
+              <span className="h-2 w-2 rounded-full bg-[#14F195]" />
+              <span className="font-semibold text-white">{countdown}s</span>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
+              <span className="text-slate-400">Balance</span>
+              <span className="font-semibold text-white [font-variant-numeric:tabular-nums]">
+                {balance !== null ? balance.toFixed(2) : "--"} ◎
+              </span>
+            </div>
+            <WalletButton />
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-screen-2xl gap-6 px-4 py-10 lg:grid-cols-[3.5fr_1.2fr]">
+      <main className="mx-auto grid max-w-screen-2xl gap-6 px-4 pb-10 pt-0 lg:grid-cols-[3.5fr_1.2fr]">
         <section className="space-y-6">
           <div className="grid gap-4 rounded-2xl border border-white/10 bg-[#0b1020] p-6 shadow-2xl backdrop-blur-xl lg:grid-cols-[1fr_3.5fr]">
             <div className="flex flex-col gap-4 rounded-xl border border-white/10 bg-black/30 p-4 shadow-inner">
@@ -475,8 +559,36 @@ export default function Home() {
                 </p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-                Next roll in{" "}
-                <span className="font-bold text-white">{countdown}s</span>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-[0.15em] text-slate-300">
+                    Select Symbols
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Multi-select allowed
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {SYMBOLS.map((symbol) => {
+                    const active = selectedSymbols.includes(symbol.key);
+                    const { iconColor, borderColor } = getSymbolStyle(symbol.key);
+                    return (
+                      <button
+                        key={`top-select-${symbol.key}`}
+                        onClick={() => toggleSymbol(symbol.key)}
+                        aria-label={symbol.label}
+                        className={`flex items-center justify-center rounded-lg px-3 py-2 border backdrop-blur-sm transition ${
+                          active
+                            ? "border-[#14F195] ring-2 ring-[#14F195]/60 bg-[#14F195]/10"
+                            : `${borderColor} bg-white/10 hover:bg-white/15`
+                        }`}
+                      >
+                        <div className={iconColor}>
+                          <div className={`h-5 w-5 ${iconColor}`}>{symbol.icon}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/40 p-4">
                 <div className="flex items-center justify-between text-xs text-slate-300">
@@ -513,16 +625,31 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-              <button className="rounded-xl border border-[#14F195]/60 bg-[#14F195]/15 px-4 py-3 text-sm font-semibold text-[#14F195] shadow-[0_0_20px_rgba(20,241,149,0.35)] transition hover:border-[#14F195] hover:bg-[#14F195]/25">
+              <button
+                onClick={handleDeposit}
+                disabled={depositBusy}
+                className="rounded-xl border border-[#14F195]/60 bg-[#14F195]/15 px-4 py-3 text-sm font-semibold text-[#14F195] shadow-[0_0_20px_rgba(20,241,149,0.35)] transition hover:border-[#14F195] hover:bg-[#14F195]/25 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
                 Deposit SOL (Keys)
               </button>
+              {depositStatus && (
+                <p
+                  className={`text-xs ${
+                    depositStatus.toLowerCase().includes("insufficient")
+                      ? "text-red-400"
+                      : "text-slate-300"
+                  }`}
+                >
+                  {depositStatus}
+                </p>
+              )}
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span className="h-2 w-2 rounded-full bg-[#14F195]" />
                 Lobby timer runs for 15s, then rolls automatically.
               </div>
             </div>
 
-            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0f172a] via-[#0b1120] to-[#0f172a] p-7 shadow-2xl">
+            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0f172a] via-[#0b1120] to-[#0f172a] p-7 shadow-2xl grid-overlay">
               <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_20%_30%,rgba(20,241,149,0.15),transparent_25%),radial-gradient(circle_at_80%_70%,rgba(153,69,255,0.15),transparent_25%),linear-gradient(180deg,rgba(255,255,255,0.06),transparent)]" />
               <div className="relative flex items-center justify-between text-sm text-slate-300">
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
@@ -550,7 +677,7 @@ export default function Home() {
               >
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="rounded-lg bg-blue-700/50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white border border-blue-400/30">
-                    {diceResults.length > 0 ? "Result" : "Choose Symbol"}
+                    {diceResults.length > 0 ? "Result" : "Choose Symbols"}
                   </span>
                   {diceResults.length > 0 ? (
                     diceResults.map((symbol, idx) => {
@@ -580,18 +707,21 @@ export default function Home() {
                     })
                   ) : (
                     SYMBOLS.map((symbol, idx) => {
-                      const active = selectedSymbol === symbol.key;
-                      const { iconColor, textColor, borderColor } = getSymbolStyle(symbol.key);
+                      const active = selectedSymbols.includes(symbol.key);
+                      const { iconColor, borderColor } = getSymbolStyle(symbol.key);
 
                       return (
                         <motion.button
                           key={`select-${symbol.key}`}
-                          onClick={() => setSelectedSymbol(symbol.key)}
+                          onClick={() => toggleSymbol(symbol.key)}
+                          aria-label={symbol.label}
                           initial={{ opacity: 0, y: 4, scale: 0.98 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           transition={{ duration: 0.2, delay: idx * 0.04 }}
-                          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border ${borderColor} backdrop-blur-sm transition ${
-                            active ? "bg-white/20 ring-2 ring-white/60" : "bg-white/10 hover:bg-white/15"
+                          className={`flex items-center justify-center rounded-lg px-3 py-1.5 border backdrop-blur-sm transition ${
+                            active
+                              ? "border-[#14F195] ring-2 ring-[#14F195]/60 bg-[#14F195]/10"
+                              : `${borderColor} bg-white/10 hover:bg-white/15`
                           }`}
                         >
                           <div className={iconColor}>
@@ -601,9 +731,6 @@ export default function Home() {
                               </div>
                             )}
                           </div>
-                          <span className={`text-sm font-semibold ${textColor}`}>
-                            {symbol.label}
-                          </span>
                         </motion.button>
                       );
                     })
@@ -611,219 +738,6 @@ export default function Home() {
                 </div>
               </motion.div>
             </div>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-slate-400">Choose your symbol</p>
-                <p className="text-xl font-semibold">Langur Burja Arena</p>
-              </div>
-              <div className="flex items-center gap-2 rounded-full border border-[#9945FF]/40 bg-[#9945FF]/10 px-3 py-1 text-xs font-semibold text-[#c3a6ff] shadow-[0_0_14px_rgba(153,69,255,0.3)]">
-                <BadgeCheck className="h-4 w-4" />
-                100% On-Chain | Verified by Switchboard
-              </div>
-            </div>
-
-            <div className="grid gap-3 pt-4 sm:grid-cols-3">
-              {SYMBOLS.map((symbol) => {
-                const isActive = selectedSymbol === symbol.key;
-                return (
-                  <motion.button
-                    key={symbol.key}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setSelectedSymbol(symbol.key)}
-                    className={`group relative overflow-hidden rounded-xl border border-white/10 bg-white/5 p-4 text-left transition ${
-                      isActive
-                        ? `${symbol.glow} border-[#14F195]/60 bg-gradient-to-br from-[#14F195]/10 to-[#9945FF]/10`
-                        : "hover:border-white/20 hover:bg-white/10"
-                    }`}
-                  >
-                    <div
-                      className={`pointer-events-none absolute inset-0 opacity-0 transition duration-300 group-hover:opacity-60 ${
-                        isActive ? "opacity-70" : ""
-                      } bg-gradient-to-br ${symbol.accent}`}
-                    />
-                    <div className="relative flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white">
-                          {symbol.icon}
-                        </div>
-                        <div>
-                          <p className="text-sm text-slate-300">Bet on</p>
-                          <p className="text-lg font-semibold">{symbol.label}</p>
-                        </div>
-                      </div>
-                      {isActive && (
-                        <div className="h-2 w-2 rounded-full bg-[#14F195] shadow-[0_0_14px_rgba(20,241,149,0.9)]" />
-                      )}
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </div>
-
-            <div className="mt-6 grid gap-4 lg:grid-cols-[2fr_1fr]">
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-5 shadow-lg backdrop-blur-lg">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex flex-1 items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 shadow-inner">
-                    <div className="rounded-md bg-[#14F195]/10 px-3 py-1 text-xs font-semibold text-[#14F195]">
-                      SOL
-                    </div>
-                    <input
-                      type="number"
-                      value={betAmount}
-                      min={0}
-                      step={0.1}
-                      onChange={(e) => setBetAmount(Number(e.target.value))}
-                      className="w-full bg-transparent text-2xl font-semibold outline-none [font-variant-numeric:tabular-nums] sm:text-3xl"
-                      style={{ fontFamily: "var(--font-jetbrains)" }}
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    {[0.1, 0.5, 1.0].map((val) => (
-                      <button
-                        key={val}
-                        onClick={() => handleQuickAmount(val)}
-                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 transition hover:border-[#14F195]/50 hover:text-white"
-                      >
-                        {val} ◎
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => handleQuickAmount(5)}
-                      className="rounded-lg border border-[#9945FF]/50 bg-[#9945FF]/10 px-3 py-2 text-sm font-semibold text-[#c3a6ff] transition hover:border-[#9945FF] hover:text-white"
-                    >
-                      Max
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-sm text-slate-400">
-                    Payout ladder: 1 match = 2x, 2 = 3x, ... 6 = 7x
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-[#14F195]">
-                    <span className="h-2 w-2 rounded-full bg-[#14F195]" />
-                    Fast roll — provably fair
-                  </div>
-                </div>
-              </div>
-
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={rolling}
-                onClick={() => handleRoll()}
-                className="group relative h-full min-h-[120px] overflow-hidden rounded-2xl border border-[#14F195]/60 bg-gradient-to-br from-[#14F195]/20 via-[#0f172a] to-[#9945FF]/30 text-center text-xl font-bold text-white shadow-[0_0_40px_rgba(20,241,149,0.35)] transition disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(20,241,149,0.2),transparent_30%),radial-gradient(circle_at_70%_80%,rgba(153,69,255,0.2),transparent_30%)]" />
-                <motion.div
-                  className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent"
-                  animate={{ x: ["-100%", "100%"] }}
-                  transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                />
-                <div className="relative flex h-full flex-col items-center justify-center gap-2 px-6">
-                  {rolling ? "Shuffling the dice..." : "ROLL DICE"}
-                  <p className="text-xs uppercase tracking-wide text-[#14F195]">
-                    {rolling ? "On-chain randomness" : "Win up to 7x"}
-                  </p>
-                </div>
-              </motion.button>
-            </div>
-
-            <div className="mt-6 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-slate-300">Dice Pit</p>
-                  <p className="text-xs text-slate-500">
-                    Auto-resolves after 3s shuffle
-                  </p>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
-                  {dicePlaceholders.map((slot) => {
-                    const result = diceResults[slot];
-                    const symbol = SYMBOLS.find((s) => s.key === result);
-                    return (
-                      <motion.div
-                        key={slot}
-                        animate={{ rotate: rolling ? 360 : 0, scale: rolling ? 1.05 : 1 }}
-                        transition={{
-                          repeat: rolling ? Infinity : 0,
-                          duration: 0.8,
-                          ease: "easeInOut",
-                        }}
-                        className="flex h-16 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-lg shadow-inner"
-                      >
-                        {symbol ? (
-                          <div className="flex flex-col items-center gap-1 text-center text-sm">
-                            <span className="text-lg">{symbol.icon}</span>
-                            <span className="text-xs text-slate-300">
-                              {symbol.label}
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="h-2 w-2 rounded-full bg-white/20" />
-                        )}
-                      </motion.div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-[#14F195]/30 bg-[#14F195]/5 p-5 backdrop-blur-xl">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-slate-200">Outcome</p>
-                  <div className="rounded-full border border-[#9945FF]/40 bg-[#9945FF]/10 px-3 py-1 text-xs text-[#c3a6ff]">
-                    Premium Crown & Flag odds boosted
-                  </div>
-                </div>
-                <div className="mt-3 space-y-2 text-sm text-slate-300">
-                  <div className="flex items-center justify-between">
-                    <span>Selected</span>
-                    <span className="font-semibold text-white">
-                      {SYMBOLS.find((s) => s.key === selectedSymbol)?.label}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Bet</span>
-                    <span
-                      className="font-semibold text-white"
-                      style={{ fontFamily: "var(--font-jetbrains)" }}
-                    >
-                      {betAmount.toFixed(2)} ◎
-                    </span>
-                  </div>
-                  {resultSummary ? (
-                    <>
-                      <div className="flex items-center justify-between text-[#14F195]">
-                        <span>Matches</span>
-                        <span className="font-semibold">{resultSummary.matches}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[#14F195]">
-                        <span>Multiplier</span>
-                        <span className="font-semibold">
-                          {resultSummary.payoutMultiplier.toFixed(1)}x
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[#14F195]">
-                        <span>Projected Payout</span>
-                        <span
-                          className="text-lg font-bold"
-                          style={{ fontFamily: "var(--font-jetbrains)" }}
-                        >
-                          {resultSummary.payout.toFixed(2)} ◎
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-slate-500">
-                      Roll the dice to see your multiplier.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
           </div>
 
           <div className="rounded-2xl border border-[#9945FF]/30 bg-gradient-to-br from-[#9945FF]/10 via-[#0f172a] to-[#14F195]/10 p-6 shadow-2xl backdrop-blur-xl">
@@ -866,7 +780,7 @@ export default function Home() {
           </div>
         </section>
 
-        <aside className="space-y-4">
+        <aside className="space-y-4 pt-1 lg:mt-6">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur-xl">
             <div className="flex items-center justify-between">
               <div>
