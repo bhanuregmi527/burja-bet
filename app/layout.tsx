@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { WalletProvider } from "@/components/WalletProvider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -30,7 +31,9 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrains.variable} antialiased bg-[#0b1120] text-white`}
       >
-        {children}
+        <WalletProvider>
+          {children}
+        </WalletProvider>
       </body>
     </html>
   );
