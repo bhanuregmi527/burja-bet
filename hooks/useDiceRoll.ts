@@ -19,6 +19,12 @@ interface UseDiceRollParams {
   isRollingRef: React.MutableRefObject<boolean>;
 }
 
+interface RollOptions {
+  silent?: boolean;
+  forcedResults?: SymbolKey[];
+  overrideRolling?: boolean;
+}
+
 export function useDiceRoll({
   rolling,
   phaseRef,
@@ -34,14 +40,26 @@ export function useDiceRoll({
   isRollingRef,
 }: UseDiceRollParams) {
   const handleRoll = useCallback(
-    (opts?: { silent?: boolean }) => {
-      if (rolling || phaseRef.current !== "lobby") return;
+    (opts?: RollOptions) => {
+      if (rolling && !opts?.overrideRolling) return;
+
+      const hasForced = !!(opts?.forcedResults && opts.forcedResults.length > 0);
+
+      // If backend already sent outcomes, we'll animate a brief settle; otherwise start a free roll that runs until forced results arrive.
+      if (hasForced) {
+        setPhaseState("rolling");
+        setRolling(true);
+        isRollingRef.current = true;
+        setCrashStopped(false);
+      }
       
-      setPhaseState("rolling");
-      setRolling(true);
-      isRollingRef.current = true;
-      setDiceResults([]);
-      setCrashStopped(false);
+      if (!hasForced) {
+        setPhaseState("rolling");
+        setRolling(true);
+        isRollingRef.current = true;
+        setDiceResults([]);
+        setCrashStopped(false);
+      }
       
       const stopPoint = generateCrashStopPoint();
       setCrashStop(stopPoint);
@@ -56,7 +74,13 @@ export function useDiceRoll({
         const faceOrientations = getFaceOrientations();
         const symbolOrder: SymbolKey[] = ["heart", "spade", "diamond", "club", "crown", "flag"]; // right, left, top, bottom, front, back
         
-        diceTargetRotationsRef.current = diceMeshesRef.current.map(() => {
+        diceTargetRotationsRef.current = diceMeshesRef.current.map((_, idx) => {
+          // If backend provided a forced symbol result, map dice index to that symbol; otherwise choose random
+          if (hasForced && opts?.forcedResults) {
+            const symbol = opts.forcedResults[idx % opts.forcedResults.length];
+            const orientation = faceOrientations.find((o) => o.symbol === symbol) || faceOrientations[0];
+            return new THREE.Euler(orientation.x, orientation.y, orientation.z, 'XYZ');
+          }
           const orientation = faceOrientations[Math.floor(Math.random() * faceOrientations.length)];
           return new THREE.Euler(orientation.x, orientation.y, orientation.z, 'XYZ');
         });
@@ -66,19 +90,21 @@ export function useDiceRoll({
           return new THREE.Vector3(vel.x, vel.y, vel.z);
         });
         
-        timeoutId = setTimeout(() => {
-          const computed = diceTargetRotationsRef.current.map((rot) => {
-            const faceIndex = getFaceFromRotation(rot);
-            return symbolOrder[faceIndex];
-          });
-          setDiceResults(computed);
-          setRolling(false);
-          isRollingRef.current = false;
-          setCrashStopped(true);
-          // Keep showing the latest results, but return to lobby so the 15s timer
-          // can schedule the next auto-roll.
-          setPhaseState("lobby");
-        }, 4000);
+        const settleDelay = hasForced ? 800 : null;
+
+        if (settleDelay !== null) {
+          timeoutId = setTimeout(() => {
+            const computed = diceTargetRotationsRef.current.map((rot) => {
+              const faceIndex = getFaceFromRotation(rot);
+              return symbolOrder[faceIndex];
+            });
+            setDiceResults(hasForced ? (opts?.forcedResults as SymbolKey[]) : computed);
+            setRolling(false);
+            isRollingRef.current = false;
+            setCrashStopped(true);
+            setPhaseState("show");
+          }, settleDelay);
+        }
       }
 
       return () => {

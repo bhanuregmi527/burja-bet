@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { generateLoginMessage, login, isTokenExpired, type LoginUser } from '@/lib/api';
 
@@ -7,6 +7,7 @@ export function useAuth() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [user, setUser] = useState<LoginUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const loginAttemptedRef = useRef<string | null>(null);
 
   useEffect(() => {
     const storedToken = localStorage.getItem('accessToken');
@@ -35,6 +36,9 @@ export function useAuth() {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('user');
     }
+    if (!connected) {
+      loginAttemptedRef.current = null;
+    }
   }, [connected, user]);
 
   useEffect(() => {
@@ -44,7 +48,12 @@ export function useAuth() {
         return;
       }
 
-      if (!connected || !publicKey || !signMessage || isLoggingIn || user) {
+      if (!connected || !publicKey || !signMessage || isLoggingIn || user || accessToken) {
+        return;
+      }
+
+      const currentWallet = publicKey.toBase58();
+      if (loginAttemptedRef.current === currentWallet) {
         return;
       }
 
@@ -52,6 +61,7 @@ export function useAuth() {
         setIsLoggingIn(true);
         const walletAddress = publicKey.toBase58();
         const message = generateLoginMessage(walletAddress);
+        loginAttemptedRef.current = walletAddress;
         
         // Sign the message
         const messageBytes = new TextEncoder().encode(message);
@@ -92,13 +102,14 @@ export function useAuth() {
         
         // For other errors, log but don't show alert
         console.error('Login failed:', error);
+        // Do not immediately retry; wait for user to reconnect or manual action
       } finally {
         setIsLoggingIn(false);
       }
     };
 
     handleLogin();
-  }, [connected, publicKey, signMessage, isLoggingIn, user]);
+  }, [connected, publicKey, signMessage, isLoggingIn, user, accessToken]);
 
   const clearAuth = () => {
     setUser(null);

@@ -16,6 +16,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { SYMBOLS, marqueeItems, liveActivity, dicePlaceholders } from '@/lib/constants';
 import type { SymbolKey } from '@/lib/types';
 import { useAuth } from '@/hooks/useAuth';
+import { useGameSocket } from '@/hooks/useGameSocket';
 import { useGame } from '@/hooks/useGame';
 import { useDiceRoll } from '@/hooks/useDiceRoll';
 import { useDiceRollSound } from '@/hooks/useDiceRollSound';
@@ -28,12 +29,22 @@ import { useSolBalance } from '@/hooks/useSolBalance';
 export default function Home() {
   const { setVisible } = useWalletModal();
   const { publicKey } = useWallet();
-  const { user, isLoggingIn } = useAuth();
+  const { user, isLoggingIn, accessToken } = useAuth();
   const { deposit } = useDeposit();
   const { balance } = useSolBalance();
   const [depositBusy, setDepositBusy] = useState(false);
   const [depositStatus, setDepositStatus] = useState<string | null>(null);
   const [depositSuccess, setDepositSuccess] = useState(false);
+  const [lastResults, setLastResults] = useState<SymbolKey[]>([]);
+  const [showRollingOverlay, setShowRollingOverlay] = useState(false);
+  const showRollingOverlayRef = useRef(false);
+  const rollingOverlayTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const overlayMinElapsedRef = useRef(false);
+
+  const setRollingOverlay = useCallback((next: boolean) => {
+    showRollingOverlayRef.current = next;
+    setShowRollingOverlay(next);
+  }, []);
   
   const progressControls = useAnimation();
   const threeRef = useRef<HTMLDivElement | null>(null);
@@ -115,17 +126,6 @@ export default function Home() {
       return;
     }
 
-    if (isLoggingIn) {
-      setDepositStatus("Please finish wallet sign-in...");
-      return;
-    }
-
-    if (!user) {
-      setDepositStatus("Sign in with your wallet to continue.");
-      setVisible(true);
-      return;
-    }
-
     if (!selectedSymbols || selectedSymbols.length === 0) {
       setDepositStatus("Select at least one symbol before depositing.");
       return;
@@ -177,7 +177,103 @@ export default function Home() {
     handleRollRef.current = handleRoll;
   }, [handleRoll]);
 
+  // Wire up backend-driven phases/timer/dice via Socket.io
+  const { connected: socketConnected } = useGameSocket({
+    onCountdown: (seconds) => {
+      setCountdown(seconds);
+
+      // During the countdown, keep dice frozen on the last result.
+      if (seconds > 0) {
+        setRolling(false);
+        isRollingRef.current = false;
+        diceVelRef.current.forEach((v) => v?.set?.(0, 0, 0));
+      }
+
+      // At timer 0, show overlay for 2s, then start rolling animation.
+      if (seconds <= 0 && phaseRef.current === "lobby" && !showRollingOverlayRef.current) {
+        setRolling(false);
+        isRollingRef.current = false;
+        diceVelRef.current.forEach((v) => v?.set?.(0, 0, 0));
+        if (diceMeshesRef.current.length > 0) {
+          diceTargetRotationsRef.current = diceMeshesRef.current.map(
+            (m) => new THREE.Euler(m.rotation.x, m.rotation.y, m.rotation.z, "XYZ"),
+          );
+        }
+        overlayMinElapsedRef.current = false;
+        setRollingOverlay(true);
+        if (rollingOverlayTimerRef.current) clearTimeout(rollingOverlayTimerRef.current);
+        rollingOverlayTimerRef.current = setTimeout(() => {
+          overlayMinElapsedRef.current = true;
+          setRollingOverlay(false);
+          // Start free rolling until result arrives
+          handleRollRef.current?.({ overrideRolling: true });
+        }, 1000);
+      }
+
+      // When a new lobby timer starts again, ensure the overlay is cleared.
+      if (seconds > 0 && phaseRef.current === "lobby" && showRollingOverlayRef.current) {
+        setRollingOverlay(false);
+        overlayMinElapsedRef.current = false;
+        // Freeze dice during lobby so faces stay readable (no idle rolling).
+        setRolling(false);
+        isRollingRef.current = false;
+        diceVelRef.current.forEach((v) => v?.set?.(0, 0, 0));
+      }
+    },
+    onPhase: (nextPhase) => {
+      setPhaseState(nextPhase);
+
+      if (nextPhase === "rolling") {
+        // Phase event is a backup; countdown already starts overlay. Do not restart overlay here.
+      } else {
+        setRolling(false);
+        setRollingOverlay(false);
+        if (rollingOverlayTimerRef.current) {
+          clearTimeout(rollingOverlayTimerRef.current);
+          rollingOverlayTimerRef.current = null;
+        }
+      }
+    },
+    onRolling: (isRolling) => {
+      if (!isRolling) {
+        setRolling(false);
+      }
+    },
+    onDiceResults: (symbols) => {
+      setLastResults(symbols);
+      setRolling(false);
+      isRollingRef.current = false;
+      diceVelRef.current.forEach((v) => v?.set?.(0, 0, 0));
+      // Immediately exit rolling phase/overlay once results arrive.
+      setPhaseState("show");
+      setRollingOverlay(false);
+      if (rollingOverlayTimerRef.current) {
+        clearTimeout(rollingOverlayTimerRef.current);
+        rollingOverlayTimerRef.current = null;
+      }
+      handleRollRef.current?.({ forcedResults: symbols, overrideRolling: true });
+    },
+  });
+
   const handleQuickAmount = (val: number) => setBetAmount(val);
+
+  // Overlay visibility is driven explicitly (avoid phase-derived flicker).
+  const rollingOverlayVisible = showRollingOverlay;
+
+  const countdownLabel = useMemo(() => {
+    if (rollingOverlayVisible || rolling || phase === "rolling") return "Rolling...";
+    if (phase === "show") return "Next round soon";
+    return `${countdown}s`;
+  }, [phase, countdown, rolling, rollingOverlayVisible]);
+
+  useEffect(() => {
+    return () => {
+      if (rollingOverlayTimerRef.current) {
+        clearTimeout(rollingOverlayTimerRef.current);
+        rollingOverlayTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!rolling && !diceResults.length) {
@@ -447,21 +543,24 @@ export default function Home() {
         const vel = diceVelRef.current[idx];
         const targetRot = diceTargetRotationsRef.current[idx];
         
-        // If still rolling, keep dice spinning continuously
+        // If still rolling, keep dice spinning continuously with subtle torque so it feels physical, not swiped.
         if (isRollingRef.current) {
-          // Keep velocity high to maintain spinning
-          if (vel.length() < 5.0) {
-            // Re-energize if velocity gets too low
-            vel.x += (Math.random() - 0.5) * 2;
-            vel.y += (Math.random() - 0.5) * 2;
-            vel.z += (Math.random() - 0.5) * 2;
+          // Re-energize if velocity gets too low and inject a tiny wobble on all axes.
+          if (vel.length() < 6.0) {
+            vel.x += (Math.random() - 0.5) * 2.4;
+            vel.y += (Math.random() - 0.5) * 2.4;
+            vel.z += (Math.random() - 0.5) * 2.4;
           }
+
+          vel.x += (Math.random() - 0.5) * 0.2;
+          vel.y += (Math.random() - 0.5) * 0.2;
+          vel.z += (Math.random() - 0.5) * 0.2;
           
-          // Continue free rotation
-          mesh.rotation.x += vel.x * 0.016;
-          mesh.rotation.y += vel.y * 0.016;
-          mesh.rotation.z += vel.z * 0.016;
-          vel.multiplyScalar(0.98); // Slower decay to keep spinning longer
+          // Continue free rotation with gentle damping for a smooth tumble.
+          mesh.rotation.x += vel.x * 0.02;
+          mesh.rotation.y += vel.y * 0.02;
+          mesh.rotation.z += vel.z * 0.02;
+          vel.multiplyScalar(0.985);
         } else {
           // Not rolling - animate to target and stop
           const dx = normalizeAngle(targetRot.x - mesh.rotation.x);
@@ -532,34 +631,6 @@ export default function Home() {
     };
   }, []);
 
-  // Auto-roll timer: rolls the dice every 15 seconds.
-  // Countdown updates every second: 15, 14, ... 1, then roll.
-  useEffect(() => {
-    setCountdown(15);
-
-    const interval = window.setInterval(() => {
-      // Ensure the game returns to a rollable state between spins.
-      if (phaseRef.current !== "lobby" && !isRollingRef.current) {
-        setPhaseState("lobby");
-      }
-
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          // Trigger roll right after showing 1.
-          if (!isRollingRef.current && phaseRef.current === "lobby") {
-            handleRollRef.current?.();
-          }
-          return 15;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-    // Intentionally run once: interval uses refs for live values.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return (
     <div className="min-h-screen bg-[#0b1120] text-white">
       <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_20%,rgba(20,241,149,0.08),transparent_25%),radial-gradient(circle_at_80%_30%,rgba(153,69,255,0.08),transparent_25%),radial-gradient(circle_at_50%_80%,rgba(52,211,153,0.05),transparent_25%)]" />
@@ -605,6 +676,14 @@ export default function Home() {
             <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
               <span className="h-2 w-2 rounded-full bg-[#14F195]" />
               <span className="font-semibold text-white">{countdown}s</span>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wide">
+              <span
+                className={`h-2 w-2 rounded-full ${socketConnected ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse`}
+              />
+              <span className="font-semibold text-slate-200">
+                {socketConnected ? 'Live feed' : 'Reconnecting...'}
+              </span>
             </div>
             {!soundEnabled && (
               <button
@@ -730,7 +809,7 @@ export default function Home() {
                 disabled={depositBusy}
                 className="rounded-xl border border-[#14F195]/60 bg-[#14F195]/15 px-4 py-3 text-sm font-semibold text-[#14F195] shadow-[0_0_20px_rgba(20,241,149,0.35)] transition hover:border-[#14F195] hover:bg-[#14F195]/25 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Deposit SOL (Keys)
+                Place Bet
               </button>
               {depositStatus && (
                 <p
@@ -756,114 +835,108 @@ export default function Home() {
                   Live Dice Screen
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-semibold text-white">
-                  {countdown}s
+                  {countdownLabel}
                 </span>
               </div>
               <div className="relative mt-4 h-[28rem] overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-black/40 via-black/20 to-black/60">
-                <div ref={threeRef} className="absolute inset-0 pointer-events-none" />
+                <div
+                  ref={threeRef}
+                  className={`absolute inset-0 pointer-events-none transition-all duration-300 ease-out ${
+                    rollingOverlayVisible ? "opacity-0 blur-[2px] scale-[0.985]" : "opacity-100 blur-0 scale-100"
+                  }`}
+                />
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(153,69,255,0.12),transparent_35%),radial-gradient(circle_at_50%_60%,rgba(20,241,149,0.12),transparent_35%)]" />
                 <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:28px_28px]" />
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(255,255,255,0.08),transparent_45%)]" />
+
+                <div
+                  className={`absolute inset-0 transition-all duration-300 ease-out ${
+                    rollingOverlayVisible
+                      ? "opacity-100 bg-black/35 backdrop-blur-[1px]"
+                      : "opacity-0 bg-transparent"
+                  }`}
+                />
+
+                <div
+                  className={`absolute inset-0 flex flex-col items-center justify-center text-center transition-all duration-300 ease-out ${
+                    rollingOverlayVisible
+                      ? "opacity-100 blur-0 scale-100"
+                      : "pointer-events-none opacity-0 blur-md scale-[1.02]"
+                  }`}
+                >
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(153,69,255,0.14),transparent_55%),radial-gradient(circle_at_50%_55%,rgba(20,241,149,0.18),transparent_55%)]" />
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ repeat: Infinity, ease: "linear", duration: 12 }}
+                    className="absolute h-64 w-64 rounded-full border border-white/10 bg-gradient-to-br from-white/5 via-transparent to-transparent blur-[1px]"
+                  />
+                  <div className="relative px-6 py-4">
+                    <p className="text-sm uppercase tracking-[0.25em] text-slate-300">Live roll</p>
+                    <p className="mt-2 text-4xl font-black uppercase leading-tight text-transparent bg-clip-text bg-gradient-to-r from-[#c084fc] via-[#8b5cf6] to-[#14F195] drop-shadow-[0_0_24px_rgba(153,69,255,0.45)]">
+                      Rolling Dice
+                    </p>
+                    <p className="mt-2 text-xs text-slate-300">Blockchain lock-in — please wait</p>
+                  </div>
+                </div>
               </div>
               
               {/* Results Display */}
               <motion.div
-                key={phase === "show" ? "results" : "choose"}
+                key={phase === "show" ? "results" : "status"}
                 initial={{ opacity: 0, y: 6, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -6, scale: 0.98 }}
                 transition={{ duration: 0.25, ease: "easeOut" }}
-                className="mt-4 rounded-xl border-2 border-blue-500/50 px-4 py-3"
+                className="mt-4 space-y-3 rounded-xl border-2 border-blue-500/50 px-4 py-3"
               >
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="rounded-lg bg-blue-700/50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white border border-blue-400/30">
-                    {diceResults.length > 0 ? "Result" : "Choose Symbols"}
+                    {phase === "rolling" ? "Rolling" : "Last Result"}
                   </span>
-                  {diceResults.length > 0 ? (
-                    diceResults.map((symbol, idx) => {
-                      const symbolData = SYMBOLS.find((s) => s.key === symbol);
-                      const { iconColor, textColor, borderColor } = getSymbolStyle(symbol);
+                  {(lastResults.length > 0 ? lastResults : diceResults).map((symbol, idx) => {
+                    const symbolData = SYMBOLS.find((s) => s.key === symbol);
+                    const { iconColor, textColor, borderColor } = getSymbolStyle(symbol);
 
-                      return (
-                        <motion.div
-                          key={`res-${symbol}-${idx}`}
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.2, delay: idx * 0.05 }}
-                          className={`flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 border ${borderColor} backdrop-blur-sm`}
-                        >
-                          {symbolTiles[symbol] ? (
-                            <Image
-                              src={symbolTiles[symbol]!}
-                              alt={symbolData?.label ?? symbol}
-                              width={20}
-                              height={20}
-                              unoptimized
-                              className="h-5 w-5 rounded-sm"
-                              draggable={false}
-                            />
-                          ) : (
-                            <div className={iconColor}>
-                              {symbolData?.icon && (
-                                <div className={`h-5 w-5 ${iconColor}`}>
-                                  {symbolData.icon}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          <span className={`text-sm font-semibold ${textColor}`}>
-                            {symbolData?.label}
-                          </span>
-                        </motion.div>
-                      );
-                    })
-                  ) : (
-                    SYMBOLS.map((symbol, idx) => {
-                      const active = selectedSymbols.includes(symbol.key);
-                      const { iconColor, borderColor } = getSymbolStyle(symbol.key);
-
-                      return (
-                        <motion.button
-                          key={`select-${symbol.key}`}
-                          onClick={() => toggleSymbol(symbol.key)}
-                          aria-label={symbol.label}
-                          initial={{ opacity: 0, y: 4, scale: 0.98 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          transition={{ duration: 0.2, delay: idx * 0.04 }}
-                          className={`relative flex items-center justify-center rounded-lg border px-3 py-1.5 backdrop-blur-sm transition will-change-transform ${
-                            active
-                              ? "border-[#14F195] bg-[#14F195]/10 ring-2 ring-[#14F195]/70 shadow-[0_0_24px_rgba(20,241,149,0.35)] scale-[1.02]"
-                              : `${borderColor} bg-white/10 hover:bg-white/15 hover:scale-[1.01]`
-                          }`}
-                        >
-                          {active && (
-                            <span className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#14F195] text-[#0b1120] shadow-[0_0_12px_rgba(20,241,149,0.5)]">
-                              <BadgeCheck className="h-4 w-4" />
-                            </span>
-                          )}
-
-                          {symbolTiles[symbol.key] ? (
-                            <Image
-                              src={symbolTiles[symbol.key]!}
-                              alt={symbol.label}
-                              width={20}
-                              height={20}
-                              unoptimized
-                              className={`h-5 w-5 rounded-sm transition ${active ? "brightness-110" : "brightness-95 opacity-95"}`}
-                              draggable={false}
-                            />
-                          ) : (
-                            <div className={iconColor}>
-                              {symbol.icon && (
-                                <div className={`h-5 w-5 ${iconColor}`}>{symbol.icon}</div>
-                              )}
-                            </div>
-                          )}
-                        </motion.button>
-                      );
-                    })
+                    return (
+                      <motion.div
+                        key={`res-${symbol}-${idx}`}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: idx * 0.05 }}
+                        className={`flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 border ${borderColor} backdrop-blur-sm`}
+                      >
+                        {symbolTiles[symbol] ? (
+                          <Image
+                            src={symbolTiles[symbol]!}
+                            alt={symbolData?.label ?? symbol}
+                            width={20}
+                            height={20}
+                            unoptimized
+                            className="h-5 w-5 rounded-sm"
+                            draggable={false}
+                          />
+                        ) : (
+                          <div className={iconColor}>
+                            {symbolData?.icon && (
+                              <div className={`h-5 w-5 ${iconColor}`}>
+                                {symbolData.icon}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <span className={`text-sm font-semibold ${textColor}`}>
+                          {symbolData?.label}
+                        </span>
+                      </motion.div>
+                    );
+                  })}
+                  {lastResults.length === 0 && diceResults.length === 0 && (
+                    <span className="text-xs text-slate-400">Waiting for first roll...</span>
                   )}
                 </div>
+                {phase === "show" && (
+                  <div className="text-xs text-slate-300">Next round starting soon. Wins are paid automatically.</div>
+                )}
               </motion.div>
             </div>
           </div>

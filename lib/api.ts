@@ -1,6 +1,6 @@
-// API utility functions for authentication
+// API utility functions for authentication and gameplay
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
 export interface RequestHeader {
   RequestId?: string;
@@ -87,6 +87,17 @@ export interface ErrorResponse {
   Response?: any;
 }
 
+export interface PlaceBetRequestBody {
+  amount: number;
+  symbol: string;
+}
+
+export interface PlaceBetResponse {
+  success: boolean;
+  betId?: string;
+  message: string;
+}
+
 /**
  * Generate login message with timestamp
  */
@@ -108,7 +119,7 @@ export const login = async (
     String.fromCharCode(...Array.from(signature))
   );
 
-  const response = await fetch(`${API_BASE_URL}/login`, {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -162,6 +173,35 @@ export const updateUserProfile = async (
   }
 
   return data as UpdateUserResponse;
+};
+
+/**
+ * Place a bet via the gateway (JWT required)
+ */
+export const placeBet = async (
+  accessToken: string,
+  body: PlaceBetRequestBody,
+): Promise<PlaceBetResponse> => {
+  const response = await fetch(`${API_BASE_URL}/game/bet`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: ErrorResponse = data;
+    throw new Error(
+      error.ResponseHeader?.Message || data?.message || 'Bet failed'
+    );
+  }
+
+  // Gateway response is simple { success, betId, message }
+  return data as PlaceBetResponse;
 };
 
 /**

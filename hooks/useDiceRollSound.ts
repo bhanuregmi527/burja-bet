@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-/**
- * Dice roll sound.
- * Uses `/dice-roll.mp3` from `public/` and loops while rolling.
- *
- * We use WebAudio so we can:
- * - unlock audio on the first user gesture without playing anything (no “tak” click)
- * - fade smoothly (gain ramp) to avoid pops
- */
 export function useDiceRollSound(rolling: boolean) {
   const [soundEnabled, setSoundEnabled] = useState(false);
 

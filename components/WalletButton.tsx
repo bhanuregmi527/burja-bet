@@ -49,8 +49,7 @@ export function WalletButton() {
   }, [showDropdown]);
 
   const handleClick = async () => {
-    if (connected && user) {
-      // Calculate dropdown position before showing
+    if (connected) {
       if (buttonRef.current) {
         const rect = buttonRef.current.getBoundingClientRect();
         setDropdownPosition({
@@ -58,16 +57,14 @@ export function WalletButton() {
           right: window.innerWidth - rect.right,
         });
       }
-      // Toggle dropdown when connected
       setShowDropdown(!showDropdown);
-    } else {
-      // Clear disconnect flag when user manually connects
-      if (typeof window !== 'undefined') {
-        sessionStorage.removeItem('walletDisconnected');
-      }
-      // Open wallet modal when not connected
-      setVisible(true);
+      return;
     }
+
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('walletDisconnected');
+    }
+    setVisible(true);
   };
 
   const handleDisconnect = async (e: React.MouseEvent) => {
@@ -126,7 +123,7 @@ export function WalletButton() {
   const getButtonText = () => {
     if (connecting) return 'Connecting...';
     if (isLoggingIn) return 'Signing in...';
-    if (connected && user && publicKey) {
+    if (connected && publicKey) {
       return `${publicKey.toBase58().slice(0, 4)}...${publicKey.toBase58().slice(-4)}`;
     }
     return 'Connect Wallet';
@@ -172,7 +169,7 @@ export function WalletButton() {
 
       <div className="relative flex items-center gap-3" ref={dropdownRef}>
         {/* SOL Balance Display - Only show when connected and logged in */}
-        {connected && user && (
+        {connected && (
           <div className="flex items-center gap-2 rounded-full border border-[#14F195]/50 bg-[#14F195]/10 px-3 py-1.5 text-sm shadow-[0_0_12px_rgba(20,241,149,0.3)]">
             <span className="text-xs text-[#14F195] font-semibold">SOL</span>
             <span className="font-semibold text-[#14F195]" style={{ fontFamily: "var(--font-jetbrains)" }}>
@@ -192,7 +189,7 @@ export function WalletButton() {
             <span className="relative z-10 flex items-center gap-2">
               <Wallet className="h-4 w-4" />
               {getButtonText()}
-              {connected && user && (
+              {connected && (
                 <ChevronDown className={`h-3 w-3 transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
               )}
             </span>
@@ -201,7 +198,7 @@ export function WalletButton() {
         </div>
 
       {/* Dropdown Menu - Rendered via Portal */}
-      {showDropdown && connected && user && typeof window !== 'undefined' && createPortal(
+      {showDropdown && connected && typeof window !== 'undefined' && createPortal(
         <div 
           data-wallet-dropdown
           className="fixed w-56 rounded-xl border border-white/10 bg-[#0b1120] shadow-2xl backdrop-blur-xl z-[99999]"
