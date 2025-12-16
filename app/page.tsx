@@ -1,9 +1,11 @@
 
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimation } from "framer-motion";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import {
   BadgeCheck,
   Bolt,
@@ -16,8 +18,9 @@ import type { SymbolKey } from '@/lib/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useGame } from '@/hooks/useGame';
 import { useDiceRoll } from '@/hooks/useDiceRoll';
+import { useDiceRollSound } from '@/hooks/useDiceRollSound';
 import { getSymbolStyle } from '@/utils/symbolStyles';
-import { createSymbolTexture } from '@/utils/symbolTexture';
+import { createSymbolTexture, createSymbolTileDataUrl } from '@/utils/symbolTexture';
 import { WalletButton } from '@/components/WalletButton';
 import { useDeposit } from '@/hooks/useDeposit';
 import { useSolBalance } from '@/hooks/useSolBalance';
@@ -64,6 +67,25 @@ export default function Home() {
     resultSummary,
   } = useGame();
 
+  // Dice roll SFX (mp3). Plays only while `rolling` is true.
+  const { soundEnabled, enableSound } = useDiceRollSound(rolling);
+
+  // Unlock audio on the very first user interaction anywhere on the page.
+  // This is the most reliable (and policy-compliant) way to get roll audio
+  // working for subsequent auto-rolls without extra prompts.
+  useEffect(() => {
+    const onFirstPointerDown = () => {
+      enableSound();
+    };
+    window.addEventListener("pointerdown", onFirstPointerDown, {
+      passive: true,
+      once: true,
+    });
+    return () => {
+      window.removeEventListener("pointerdown", onFirstPointerDown);
+    };
+  }, [enableSound]);
+
   const toggleSymbol = (symbol: SymbolKey) => {
     setSelectedSymbols((prev) =>
       prev.includes(symbol)
@@ -71,6 +93,18 @@ export default function Home() {
         : [...prev, symbol]
     );
   };
+
+  const [symbolTiles, setSymbolTiles] = useState<Partial<Record<SymbolKey, string>>>({});
+
+  useEffect(() => {
+    // Generate small PNG tiles that match the live dice face look.
+    // Run once on mount to avoid heavy work on every render.
+    const tiles: Partial<Record<SymbolKey, string>> = {};
+    for (const s of SYMBOLS) {
+      tiles[s.key] = createSymbolTileDataUrl(s.key, 192);
+    }
+    setSymbolTiles(tiles);
+  }, []);
 
   const handleDeposit = async () => {
     setDepositStatus(null);
@@ -136,6 +170,13 @@ export default function Home() {
     isRollingRef,
   });
 
+  // Keep a stable reference to the latest roll handler so the countdown interval
+  // doesn't get recreated (which would keep resetting the timer back to 15).
+  const handleRollRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    handleRollRef.current = handleRoll;
+  }, [handleRoll]);
+
   const handleQuickAmount = (val: number) => setBetAmount(val);
 
   useEffect(() => {
@@ -143,7 +184,7 @@ export default function Home() {
       progressControls.set({ width: "0%" });
       setCrashStopped(false);
     }
-  }, [diceResults.length, progressControls, rolling]);
+  }, [diceResults.length, progressControls, rolling, setCrashStopped]);
 
   // Three.js dice stage - 6 dice in 2x3 grid
   useEffect(() => {
@@ -163,76 +204,110 @@ export default function Home() {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    // Slightly more realistic light response.
+    renderer.physicallyCorrectLights = true;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
-    // Enhanced lighting
-    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
-    const point1 = new THREE.PointLight(0x14f195, 0.6, 30);
+    // Simple environment for realistic reflections (helps edges look polished).
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+
+    // Enhanced lighting (more depth + nicer edge highlights)
+    const ambient = new THREE.AmbientLight(0xffffff, 0.25);
+    const hemi = new THREE.HemisphereLight(0xdbeafe, 0x0b1120, 0.35);
+
+    const point1 = new THREE.PointLight(0x14f195, 0.45, 40);
     point1.position.set(-4, 5, 4);
     point1.castShadow = true;
-    const point2 = new THREE.PointLight(0x9945ff, 0.5, 30);
+    point1.shadow.mapSize.set(1024, 1024);
+
+    const point2 = new THREE.PointLight(0x9945ff, 0.4, 40);
     point2.position.set(4, 5, 4);
     point2.castShadow = true;
-    const directional = new THREE.DirectionalLight(0xffffff, 0.4);
-    directional.position.set(0, 8, 5);
-    directional.castShadow = true;
-    scene.add(ambient, point1, point2, directional);
+    point2.shadow.mapSize.set(1024, 1024);
 
-    // Create rounded box geometry with curved edges
+    const directional = new THREE.DirectionalLight(0xffffff, 0.9);
+    directional.position.set(2, 10, 6);
+    directional.castShadow = true;
+    directional.shadow.mapSize.set(2048, 2048);
+    directional.shadow.bias = -0.00015;
+    directional.shadow.normalBias = 0.02;
+    directional.shadow.camera.near = 1;
+    directional.shadow.camera.far = 40;
+    directional.shadow.camera.left = -20;
+    directional.shadow.camera.right = 20;
+    directional.shadow.camera.top = 20;
+    directional.shadow.camera.bottom = -20;
+
+    const rim = new THREE.DirectionalLight(0xffffff, 0.35);
+    rim.position.set(-6, 6, -10);
+
+    scene.add(ambient, hemi, point1, point2, directional, rim);
+
+    // Soft shadow catcher so dice feel grounded
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(120, 120),
+      new THREE.ShadowMaterial({ opacity: 0.22 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -7.35;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Create rounded box geometry with smoother curved edges
     const createRoundedBox = (width: number, height: number, depth: number, radius: number) => {
-      // Use segments=1 to ensure exactly 6 groups (one per face)
-      // We'll add rounding which will smooth the edges
-      const segments = 1;
+      // More segments gives a nicer bevel/rounding while keeping BoxGeometry's 6 material groups.
+      const segments = 14;
       const geo = new THREE.BoxGeometry(width, height, depth, segments, segments, segments);
       const pos = geo.attributes.position;
-      const uv = geo.attributes.uv;
       const halfWidth = width / 2;
       const halfHeight = height / 2;
       const halfDepth = depth / 2;
-      
-      // Apply rounding to edges and corners
+
+      const innerW = halfWidth - radius;
+      const innerH = halfHeight - radius;
+      const innerD = halfDepth - radius;
+
+      // Round edges/corners using a standard "rounded cube" projection.
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const y = pos.getY(i);
         const z = pos.getZ(i);
-        
-        // Calculate how close vertex is to each face
-        const distX = Math.abs(Math.abs(x) - halfWidth);
-        const distY = Math.abs(Math.abs(y) - halfHeight);
-        const distZ = Math.abs(Math.abs(z) - halfDepth);
-        
-        // Find minimum distance to edge/corner
-        const minDist = Math.min(distX, distY, distZ);
-        
-        // If vertex is near an edge or corner, round it
-        if (minDist < radius) {
-          const edgeDist = Math.sqrt(
-            (distX < radius ? distX * distX : 0) +
-            (distY < radius ? distY * distY : 0) +
-            (distZ < radius ? distZ * distZ : 0)
-          );
-          
-          if (edgeDist < radius && edgeDist > 0) {
-            const factor = 1 - (radius - edgeDist) / radius;
-            const newX = Math.sign(x) * (halfWidth - (halfWidth - Math.abs(x)) * factor);
-            const newY = Math.sign(y) * (halfHeight - (halfHeight - Math.abs(y)) * factor);
-            const newZ = Math.sign(z) * (halfDepth - (halfDepth - Math.abs(z)) * factor);
-            pos.setXYZ(i, newX, newY, newZ);
-          }
-        }
+
+        const ax = Math.abs(x);
+        const ay = Math.abs(y);
+        const az = Math.abs(z);
+
+        const qx = Math.max(ax - innerW, 0);
+        const qy = Math.max(ay - innerH, 0);
+        const qz = Math.max(az - innerD, 0);
+
+        const qLen = Math.sqrt(qx * qx + qy * qy + qz * qz);
+        if (qLen === 0) continue;
+
+        const nx = qx / qLen;
+        const ny = qy / qLen;
+        const nz = qz / qLen;
+
+        const newAx = ax <= innerW ? ax : innerW + nx * radius;
+        const newAy = ay <= innerH ? ay : innerH + ny * radius;
+        const newAz = az <= innerD ? az : innerD + nz * radius;
+
+        pos.setXYZ(i, Math.sign(x) * newAx, Math.sign(y) * newAy, Math.sign(z) * newAz);
       }
-      
-      // BoxGeometry already has correct UV mapping
-      // We just need to ensure UVs are preserved after vertex modifications
-      // The UVs should already be correct, so we don't modify them
+
       geo.computeVertexNormals();
       return geo;
     };
 
     const diceSize = 4.8; // 4x bigger
-    const diceRadius = 0.5; // Increased for more pronounced curved edges
+    const diceRadius = 0.62; // smoother, more premium edge rounding
 
     // Create materials for each face with symbol textures
     // BoxGeometry face order: right, left, top, bottom, front, back
@@ -248,15 +323,24 @@ export default function Home() {
         
         // Create completely fresh texture for this specific face
         const texture = createSymbolTexture(symbol, 512);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
         texture.needsUpdate = true;
         texture.uuid = THREE.MathUtils.generateUUID();
         
         // Create material with this texture
-        const material = new THREE.MeshStandardMaterial({
+        const material = new THREE.MeshPhysicalMaterial({
           map: texture,
           color: 0xffffff,
-          roughness: 0.95,
-          metalness: 0.0,
+          roughness: 0.58,
+          metalness: 0.08,
+          clearcoat: 0.6,
+          clearcoatRoughness: 0.16,
+          reflectivity: 0.25,
+          ior: 1.42,
+          envMapIntensity: 0.75,
         });
         
         material.needsUpdate = true;
@@ -448,43 +532,33 @@ export default function Home() {
     };
   }, []);
 
-  // Phase management: lobby (15s) -> rolling -> show (15s) -> lobby
+  // Auto-roll timer: rolls the dice every 15 seconds.
+  // Countdown updates every second: 15, 14, ... 1, then roll.
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    setCountdown(15);
 
-    if (phase === "lobby") {
-      setCountdown(15);
-      interval = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(interval!);
-            handleRoll();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (phase === "show") {
-      setCountdown(15);
-      interval = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(interval!);
-            // reset for next lobby
-            setDiceResults([]);
-            setCrashStopped(false);
-            setPhaseState("lobby");
-            return 15;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
+    const interval = window.setInterval(() => {
+      // Ensure the game returns to a rollable state between spins.
+      if (phaseRef.current !== "lobby" && !isRollingRef.current) {
+        setPhaseState("lobby");
+      }
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [phase, handleRoll]);
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          // Trigger roll right after showing 1.
+          if (!isRollingRef.current && phaseRef.current === "lobby") {
+            handleRollRef.current?.();
+          }
+          return 15;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+    // Intentionally run once: interval uses refs for live values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0b1120] text-white">
@@ -532,6 +606,14 @@ export default function Home() {
               <span className="h-2 w-2 rounded-full bg-[#14F195]" />
               <span className="font-semibold text-white">{countdown}s</span>
             </div>
+            {!soundEnabled && (
+              <button
+                onClick={enableSound}
+                className="inline-flex items-center gap-2 rounded-full border border-[#14F195]/40 bg-[#14F195]/10 px-3 py-1 text-[11px] font-semibold text-[#14F195] shadow-[0_0_16px_rgba(20,241,149,0.25)] transition hover:border-[#14F195]/70 hover:bg-[#14F195]/15"
+              >
+                Enable sound
+              </button>
+            )}
             <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
               <span className="text-slate-400">Balance</span>
               <span className="font-semibold text-white [font-variant-numeric:tabular-nums]">
@@ -576,15 +658,33 @@ export default function Home() {
                         key={`top-select-${symbol.key}`}
                         onClick={() => toggleSymbol(symbol.key)}
                         aria-label={symbol.label}
-                        className={`flex items-center justify-center rounded-lg px-3 py-2 border backdrop-blur-sm transition ${
+                        className={`relative flex items-center justify-center rounded-lg border p-2 backdrop-blur-sm transition will-change-transform ${
                           active
-                            ? "border-[#14F195] ring-2 ring-[#14F195]/60 bg-[#14F195]/10"
-                            : `${borderColor} bg-white/10 hover:bg-white/15`
+                            ? "border-[#14F195] bg-[#14F195]/10 ring-2 ring-[#14F195]/70 shadow-[0_0_24px_rgba(20,241,149,0.35)] scale-[1.02]"
+                            : `${borderColor} bg-white/10 hover:bg-white/15 hover:scale-[1.01]`
                         }`}
                       >
-                        <div className={iconColor}>
-                          <div className={`h-5 w-5 ${iconColor}`}>{symbol.icon}</div>
-                        </div>
+                        {active && (
+                          <span className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#14F195] text-[#0b1120] shadow-[0_0_12px_rgba(20,241,149,0.5)]">
+                            <BadgeCheck className="h-4 w-4" />
+                          </span>
+                        )}
+
+                        {symbolTiles[symbol.key] ? (
+                          <Image
+                            src={symbolTiles[symbol.key]!}
+                            alt={symbol.label}
+                            width={40}
+                            height={40}
+                            unoptimized
+                            className={`h-10 w-10 rounded-md shadow-sm transition ${active ? "brightness-110" : "brightness-95 opacity-95"}`}
+                            draggable={false}
+                          />
+                        ) : (
+                          <div className={iconColor}>
+                            <div className={`h-5 w-5 ${iconColor}`}>{symbol.icon}</div>
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -692,13 +792,25 @@ export default function Home() {
                           transition={{ duration: 0.2, delay: idx * 0.05 }}
                           className={`flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 border ${borderColor} backdrop-blur-sm`}
                         >
-                          <div className={iconColor}>
-                            {symbolData?.icon && (
-                              <div className={`h-5 w-5 ${iconColor}`}>
-                                {symbolData.icon}
-                              </div>
-                            )}
-                          </div>
+                          {symbolTiles[symbol] ? (
+                            <Image
+                              src={symbolTiles[symbol]!}
+                              alt={symbolData?.label ?? symbol}
+                              width={20}
+                              height={20}
+                              unoptimized
+                              className="h-5 w-5 rounded-sm"
+                              draggable={false}
+                            />
+                          ) : (
+                            <div className={iconColor}>
+                              {symbolData?.icon && (
+                                <div className={`h-5 w-5 ${iconColor}`}>
+                                  {symbolData.icon}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <span className={`text-sm font-semibold ${textColor}`}>
                             {symbolData?.label}
                           </span>
@@ -718,19 +830,35 @@ export default function Home() {
                           initial={{ opacity: 0, y: 4, scale: 0.98 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           transition={{ duration: 0.2, delay: idx * 0.04 }}
-                          className={`flex items-center justify-center rounded-lg px-3 py-1.5 border backdrop-blur-sm transition ${
+                          className={`relative flex items-center justify-center rounded-lg border px-3 py-1.5 backdrop-blur-sm transition will-change-transform ${
                             active
-                              ? "border-[#14F195] ring-2 ring-[#14F195]/60 bg-[#14F195]/10"
-                              : `${borderColor} bg-white/10 hover:bg-white/15`
+                              ? "border-[#14F195] bg-[#14F195]/10 ring-2 ring-[#14F195]/70 shadow-[0_0_24px_rgba(20,241,149,0.35)] scale-[1.02]"
+                              : `${borderColor} bg-white/10 hover:bg-white/15 hover:scale-[1.01]`
                           }`}
                         >
-                          <div className={iconColor}>
-                            {symbol.icon && (
-                              <div className={`h-5 w-5 ${iconColor}`}>
-                                {symbol.icon}
-                              </div>
-                            )}
-                          </div>
+                          {active && (
+                            <span className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#14F195] text-[#0b1120] shadow-[0_0_12px_rgba(20,241,149,0.5)]">
+                              <BadgeCheck className="h-4 w-4" />
+                            </span>
+                          )}
+
+                          {symbolTiles[symbol.key] ? (
+                            <Image
+                              src={symbolTiles[symbol.key]!}
+                              alt={symbol.label}
+                              width={20}
+                              height={20}
+                              unoptimized
+                              className={`h-5 w-5 rounded-sm transition ${active ? "brightness-110" : "brightness-95 opacity-95"}`}
+                              draggable={false}
+                            />
+                          ) : (
+                            <div className={iconColor}>
+                              {symbol.icon && (
+                                <div className={`h-5 w-5 ${iconColor}`}>{symbol.icon}</div>
+                              )}
+                            </div>
+                          )}
                         </motion.button>
                       );
                     })

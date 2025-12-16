@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react';
 import * as THREE from "three";
 import type { SymbolKey, GamePhase } from '@/lib/types';
 import { generateCrashStopPoint, generateDiceVelocity } from '@/utils/gameCalculations';
-import { getFaceOrientations } from '@/utils/diceHelpers';
+import { getFaceFromRotation, getFaceOrientations } from '@/utils/diceHelpers';
 
 interface UseDiceRollParams {
   rolling: boolean;
@@ -54,11 +54,10 @@ export function useDiceRoll({
       
       if (diceMeshesRef.current.length > 0) {
         const faceOrientations = getFaceOrientations();
-        const selectedResults: SymbolKey[] = [];
+        const symbolOrder: SymbolKey[] = ["heart", "spade", "diamond", "club", "crown", "flag"]; // right, left, top, bottom, front, back
         
         diceTargetRotationsRef.current = diceMeshesRef.current.map(() => {
           const orientation = faceOrientations[Math.floor(Math.random() * faceOrientations.length)];
-          selectedResults.push(orientation.symbol);
           return new THREE.Euler(orientation.x, orientation.y, orientation.z, 'XYZ');
         });
         
@@ -68,11 +67,17 @@ export function useDiceRoll({
         });
         
         timeoutId = setTimeout(() => {
-          setDiceResults(selectedResults);
+          const computed = diceTargetRotationsRef.current.map((rot) => {
+            const faceIndex = getFaceFromRotation(rot);
+            return symbolOrder[faceIndex];
+          });
+          setDiceResults(computed);
           setRolling(false);
           isRollingRef.current = false;
           setCrashStopped(true);
-          setPhaseState("show");
+          // Keep showing the latest results, but return to lobby so the 15s timer
+          // can schedule the next auto-roll.
+          setPhaseState("lobby");
         }, 4000);
       }
 

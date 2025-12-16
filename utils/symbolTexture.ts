@@ -42,23 +42,36 @@ export function createSymbolTexture(
     ctx.closePath();
   };
 
-  // Base face: soft gold with vignette so icons pop but stay on brand
+  // Base face: fill the entire canvas (no transparent corners)
+  // to prevent seam/gap artifacts on beveled/rounded cube edges.
   const cornerRadius = size * 0.08;
   const grd = ctx.createLinearGradient(0, 0, size, size);
   grd.addColorStop(0, "#f6d94f");
   grd.addColorStop(1, "#e3be29");
   ctx.fillStyle = grd;
-  drawRoundedRect(0, 0, size, size, cornerRadius);
-  ctx.fill();
+  ctx.fillRect(0, 0, size, size);
 
-  // Subtle overlay to avoid flat look
+  // Subtle inner overlay to avoid flat look (kept inset so edge pixels stay solid)
   ctx.fillStyle = "rgba(0,0,0,0.05)";
-  drawRoundedRect(size * 0.04, size * 0.04, size * 0.92, size * 0.92, cornerRadius * 0.7);
+  drawRoundedRect(
+    size * 0.04,
+    size * 0.04,
+    size * 0.92,
+    size * 0.92,
+    cornerRadius * 0.7
+  );
   ctx.fill();
 
-  ctx.strokeStyle = "rgba(0,0,0,0.15)";
+  // Move border stroke inward to avoid dark seams where faces meet.
+  ctx.strokeStyle = "rgba(0,0,0,0.12)";
   ctx.lineWidth = 3;
-  drawRoundedRect(1.5, 1.5, size - 3, size - 3, cornerRadius);
+  drawRoundedRect(
+    size * 0.02,
+    size * 0.02,
+    size * 0.96,
+    size * 0.96,
+    cornerRadius * 0.9
+  );
   ctx.stroke();
 
   const centerX = size / 2;
@@ -115,10 +128,6 @@ export function createSymbolTexture(
       "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
     );
 
-    // Flip so it shows correctly on the dice face (heart point down).
-    ctx.save();
-    ctx.scale(1, -1);
-
     const heartScale = 1.25;
     const lucideScale = 3.8 * heartScale;
     const heartYOffset = -8;
@@ -130,8 +139,6 @@ export function createSymbolTexture(
     ctx.fillStyle = heartFill;
     ctx.fill(heartPath);
     ctx.restore();
-
-    ctx.restore();
   } else if (symbolKey === "spade") {
     // Exact Lucide Spade geometry (same as select symbol), filled solid black.
     const spadeFill = "#0f172a";
@@ -141,10 +148,6 @@ export function createSymbolTexture(
       "M5 9c-1.5 1.5-3 3.2-3 5.5A5.5 5.5 0 0 0 7.5 20c1.8 0 3-.5 4.5-2 1.5 1.5 2.7 2 4.5 2a5.5 5.5 0 0 0 5.5-5.5c0-2.3-1.5-4-3-5.5l-7-7-7 7Z"
     );
     const spadeStemPath = new Path2D("M12 18v4");
-
-    // Flip so it shows upright on the dice face.
-    ctx.save();
-    ctx.scale(1, -1);
 
     const spadeScale = 1.25;
     const lucideScale = 3.8 * spadeScale;
@@ -166,7 +169,6 @@ export function createSymbolTexture(
     ctx.lineWidth = 3.2;
     ctx.stroke(spadeStemPath);
 
-    ctx.restore();
     ctx.restore();
   } else if (symbolKey === "diamond") {
     ctx.fillStyle = "#e73b3b";
@@ -190,27 +192,27 @@ export function createSymbolTexture(
     ctx.stroke();
   } else if (symbolKey === "club") {
     // Draw a proper club symbol: three circular leaves at top, stem at bottom
-    // Flipped y-coordinates so it faces up correctly on the dice
+    // Canonical orientation (matches UI): leaves at top, stem at bottom.
     ctx.fillStyle = stroke;
     const r = 22; // Radius of each circular leaf
-    // Top center circle (flipped: positive y is up)
+    // Top center circle
     ctx.beginPath();
-    ctx.arc(0, 40, r, 0, Math.PI * 2);
+    ctx.arc(0, -40, r, 0, Math.PI * 2);
     ctx.fill();
     // Bottom left circle
     ctx.beginPath();
-    ctx.arc(-28, -8, r, 0, Math.PI * 2);
+    ctx.arc(-28, 8, r, 0, Math.PI * 2);
     ctx.fill();
     // Bottom right circle
     ctx.beginPath();
-    ctx.arc(28, -8, r, 0, Math.PI * 2);
+    ctx.arc(28, 8, r, 0, Math.PI * 2);
     ctx.fill();
     // Stem (trapezoid shape connecting to base)
     ctx.beginPath();
-    ctx.moveTo(-10, -20);
-    ctx.lineTo(-14, -60);
-    ctx.lineTo(14, -60);
-    ctx.lineTo(10, -20);
+    ctx.moveTo(-10, 20);
+    ctx.lineTo(-14, 60);
+    ctx.lineTo(14, 60);
+    ctx.lineTo(10, 20);
     ctx.closePath();
     ctx.fill();
   } else if (symbolKey === "crown") {
@@ -224,11 +226,6 @@ export function createSymbolTexture(
     const crownBodyPath = new Path2D(
       "M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z"
     );
-
-    // The dice face UV for this symbol ends up vertically inverted.
-    // Flip the crown (and its base line) here so it appears upright on the rendered dice.
-    ctx.save();
-    ctx.scale(1, -1);
 
     // Fit the 24x24 Lucide crown into our ~100x100 symbol space.
     // Increase crown size by 30%.
@@ -287,8 +284,6 @@ export function createSymbolTexture(
     );
     ctx.closePath();
     ctx.fill();
-
-    ctx.restore();
   } else if (symbolKey === "flag") {
     // Exact Lucide Flag geometry (same as select symbol), with black border and red fill.
     const flagFill = "#b61f2d";
@@ -299,11 +294,6 @@ export function createSymbolTexture(
       "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"
     );
     const polePath = new Path2D("M4 22V15");
-
-    // The dice face UV for this symbol ends up vertically inverted.
-    // Flip here so the flag matches the UI (pole on the left, flag waving right).
-    ctx.save();
-    ctx.scale(1, -1);
 
     const flagScale = 1.25;
     const lucideScale = 3.8 * flagScale; // 24 * 3.8 ≈ 91.2 (baseline)
@@ -327,16 +317,20 @@ export function createSymbolTexture(
     ctx.stroke(polePath);
 
     ctx.restore();
-    ctx.restore();
   }
 
   ctx.restore();
   ctx.globalCompositeOperation = "source-over";
 
   const texture = new THREE.CanvasTexture(canvas);
-  texture.flipY = false;
+  // Keep symbol art canonical (same as UI) and let Three.js handle image origin.
+  texture.flipY = true;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
   texture.repeat.set(1, 1);
   texture.offset.set(0, 0);
   texture.needsUpdate = true;
@@ -345,5 +339,13 @@ export function createSymbolTexture(
   texture.type = THREE.UnsignedByteType;
 
   return texture;
+}
+
+export function createSymbolTileDataUrl(symbolKey: SymbolKey, size = 192): string {
+  const texture = createSymbolTexture(symbolKey, size);
+  const canvas = texture.image as unknown as HTMLCanvasElement;
+  const dataUrl = canvas.toDataURL("image/png");
+  texture.dispose();
+  return dataUrl;
 }
 
