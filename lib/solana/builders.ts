@@ -4,12 +4,10 @@ import {
 } from "@solana/web3.js";
 import { PROGRAM_ID } from "./program";
 
-// Seeds inferred from instructions.json
 const USER_BALANCE_SEED = Buffer.from("user_balance");
 const VAULT_SEED = Buffer.from("vault");
 const SYSTEM_PROGRAM = new PublicKey("11111111111111111111111111111111");
 
-// Discriminators from instructions.json
 const USER_DEPOSIT_DISC = Uint8Array.from([
   186, 198, 140, 233, 129, 39, 98, 153,
 ]);
@@ -29,7 +27,6 @@ export function buildUserDepositIx(user: PublicKey, amountLamports: bigint) {
   const vault = getVaultPda();
   const userBalance = getUserBalancePda(user);
 
-  // data layout: 8-byte discriminator + u64 amount (little endian)
   const data = Buffer.alloc(8 + 8);
   Buffer.from(USER_DEPOSIT_DISC).copy(data, 0);
   data.writeBigUInt64LE(amountLamports, 8);

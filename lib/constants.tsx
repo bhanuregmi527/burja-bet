@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Heart, Spade, Diamond, Crown, Flag } from "lucide-react";
+import { Heart, Spade, Diamond, Club, Crown, Flag } from "lucide-react";
 import type { GameSymbol, Activity } from "./types";
 
 export const SYMBOLS: GameSymbol[] = [
@@ -31,7 +31,7 @@ export const SYMBOLS: GameSymbol[] = [
     label: "Club",
     accent: "from-emerald-400/60 to-green-500/80",
     glow: "shadow-[0_0_24px_rgba(52,211,153,0.45)]",
-    icon: <Spade className="h-8 w-8 rotate-180" />,
+    icon: <Club className="h-8 w-8" />,
   },
   {
     key: "crown",

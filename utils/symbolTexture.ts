@@ -107,13 +107,17 @@ export function createSymbolTexture(
   ctx.lineWidth = 18;
 
   if (symbolKey === "heart") {
+    // Heart facing down, more rounded shape (flipped y-coordinates)
     ctx.fillStyle = "#e73b3b";
     ctx.beginPath();
-    ctx.moveTo(0, 32);
-    ctx.bezierCurveTo(-28, 12, -45, -12, -25, -32);
-    ctx.bezierCurveTo(-5, -52, 0, -30, 0, -24);
-    ctx.bezierCurveTo(0, -30, 5, -52, 25, -32);
-    ctx.bezierCurveTo(45, -12, 28, 12, 0, 32);
+    // Start from top point (flipped: positive y is top)
+    ctx.moveTo(0, -32); // Top point
+    // Left curve - more rounded
+    ctx.bezierCurveTo(-30, -12, -42, 8, -28, 28);
+    ctx.bezierCurveTo(-18, 42, 0, 30, 0, 24);
+    // Right curve - more rounded
+    ctx.bezierCurveTo(0, 30, 18, 42, 28, 28);
+    ctx.bezierCurveTo(42, 8, 30, -12, 0, -32);
     ctx.closePath();
     ctx.fill();
   } else if (symbolKey === "spade") {
@@ -151,49 +155,118 @@ export function createSymbolTexture(
     ctx.strokeStyle = stroke;
     ctx.stroke();
   } else if (symbolKey === "club") {
+    // Draw a proper club symbol: three circular leaves at top, stem at bottom
+    // Flipped y-coordinates so it faces up correctly on the dice
     ctx.fillStyle = stroke;
-    const r = 26;
+    const r = 22; // Radius of each circular leaf
+    // Top center circle (flipped: positive y is up)
     ctx.beginPath();
-    ctx.arc(0, -32, r, 0, Math.PI * 2);
-    ctx.arc(-30, 14, r, 0, Math.PI * 2);
-    ctx.arc(30, 14, r, 0, Math.PI * 2);
+    ctx.arc(0, 40, r, 0, Math.PI * 2);
     ctx.fill();
+    // Bottom left circle
     ctx.beginPath();
-    ctx.moveTo(-12, 26);
-    ctx.lineTo(-18, 66);
-    ctx.lineTo(18, 66);
-    ctx.lineTo(12, 26);
+    ctx.arc(-28, -8, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Bottom right circle
+    ctx.beginPath();
+    ctx.arc(28, -8, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Stem (trapezoid shape connecting to base)
+    ctx.beginPath();
+    ctx.moveTo(-10, -20);
+    ctx.lineTo(-14, -60);
+    ctx.lineTo(14, -60);
+    ctx.lineTo(10, -20);
     ctx.closePath();
     ctx.fill();
   } else if (symbolKey === "crown") {
+    // Crown with 3 curved peaks of equal width, and two lines at bottom
+    // Flipped y-coordinates so it faces up correctly on the dice
     ctx.fillStyle = "#e73b3b";
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 18;
+    
+    const peakWidth = 20; // Equal width for all peaks
+    const leftPeakCenter = -25;
+    const centerPeakCenter = 0;
+    const rightPeakCenter = 25;
+    const peakHeight = 50; // Center peak height
+    const sidePeakHeight = 40; // Side peaks height
+    const baseY = -30;
+    const valleyY = 12;
+    
+    // Draw the crown shape with 3 curved peaks (equal width)
     ctx.beginPath();
-    ctx.moveTo(-50, 26);
-    ctx.lineTo(-30, -42);
-    ctx.lineTo(-10, 0);
-    ctx.lineTo(0, -48);
-    ctx.lineTo(10, 0);
-    ctx.lineTo(30, -42);
-    ctx.lineTo(50, 26);
+    // Start from bottom left
+    ctx.moveTo(-45, baseY);
+    // Left peak (curved, equal width)
+    ctx.lineTo(leftPeakCenter - peakWidth/2, valleyY); // Left base
+    ctx.bezierCurveTo(
+      leftPeakCenter - peakWidth/2, valleyY + 10,
+      leftPeakCenter - peakWidth/4, valleyY + 25,
+      leftPeakCenter, sidePeakHeight
+    ); // Curved left to center
+    ctx.bezierCurveTo(
+      leftPeakCenter + peakWidth/4, valleyY + 25,
+      leftPeakCenter + peakWidth/2, valleyY + 10,
+      leftPeakCenter + peakWidth/2, valleyY
+    ); // Curved center to right
+    ctx.lineTo(centerPeakCenter - peakWidth/2, valleyY); // Valley to center peak
+    // Center peak (tallest, equal width)
+    ctx.bezierCurveTo(
+      centerPeakCenter - peakWidth/2, valleyY + 10,
+      centerPeakCenter - peakWidth/4, valleyY + 30,
+      centerPeakCenter, peakHeight
+    ); // Curved left to center
+    ctx.bezierCurveTo(
+      centerPeakCenter + peakWidth/4, valleyY + 30,
+      centerPeakCenter + peakWidth/2, valleyY + 10,
+      centerPeakCenter + peakWidth/2, valleyY
+    ); // Curved center to right
+    ctx.lineTo(rightPeakCenter - peakWidth/2, valleyY); // Valley to right peak
+    // Right peak (curved, equal width)
+    ctx.bezierCurveTo(
+      rightPeakCenter - peakWidth/2, valleyY + 10,
+      rightPeakCenter - peakWidth/4, valleyY + 25,
+      rightPeakCenter, sidePeakHeight
+    ); // Curved left to center
+    ctx.bezierCurveTo(
+      rightPeakCenter + peakWidth/4, valleyY + 25,
+      rightPeakCenter + peakWidth/2, valleyY + 10,
+      rightPeakCenter + peakWidth/2, valleyY
+    ); // Curved center to right
+    ctx.lineTo(45, baseY); // Bottom right
     ctx.closePath();
     ctx.fill();
+    
+    // Draw two base lines at bottom (matching the symbol design)
     ctx.beginPath();
-    ctx.moveTo(-50, 26);
-    ctx.lineTo(50, 26);
-    ctx.lineWidth = 14;
+    // First line (top line of base)
+    ctx.moveTo(-45, -25);
+    ctx.lineTo(45, -25);
+    ctx.lineWidth = 18;
+    ctx.stroke();
+    // Second line (bottom line of base)
+    ctx.beginPath();
+    ctx.moveTo(-45, baseY);
+    ctx.lineTo(45, baseY);
+    ctx.lineWidth = 18;
     ctx.stroke();
   } else if (symbolKey === "flag") {
+    // Flag with pole at top, flag hanging down (flipped y so it faces down correctly)
     ctx.fillStyle = stroke;
     const poleX = -28;
     ctx.lineWidth = 16;
+    // Pole: top to bottom (flipped y-coordinates)
     ctx.beginPath();
-    ctx.moveTo(poleX, -52);
-    ctx.lineTo(poleX, 54);
+    ctx.moveTo(poleX, 52); // Top of pole (flipped: positive y is top)
+    ctx.lineTo(poleX, -54); // Bottom of pole (flipped: negative y is bottom)
     ctx.stroke();
+    // Flag hanging down from pole
     ctx.fillStyle = "#e73b3b";
-    ctx.fillRect(poleX, -34, 66, 46);
+    ctx.fillRect(poleX, 34, 66, 46); // Flag starts at top, extends down
     ctx.strokeStyle = stroke;
-    ctx.strokeRect(poleX, -34, 66, 46);
+    ctx.strokeRect(poleX, 34, 66, 46);
   }
 
   ctx.restore();
