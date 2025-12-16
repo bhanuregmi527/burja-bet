@@ -107,33 +107,67 @@ export function createSymbolTexture(
   ctx.lineWidth = 18;
 
   if (symbolKey === "heart") {
-    // Heart facing down, more rounded shape (flipped y-coordinates)
-    ctx.fillStyle = "#e73b3b";
-    ctx.beginPath();
-    // Start from top point (flipped: positive y is top)
-    ctx.moveTo(0, -32); // Top point
-    // Left curve - more rounded
-    ctx.bezierCurveTo(-30, -12, -42, 8, -28, 28);
-    ctx.bezierCurveTo(-18, 42, 0, 30, 0, 24);
-    // Right curve - more rounded
-    ctx.bezierCurveTo(0, 30, 18, 42, 28, 28);
-    ctx.bezierCurveTo(42, 8, 30, -12, 0, -32);
-    ctx.closePath();
-    ctx.fill();
+    // Exact Lucide Heart geometry (same as select symbol), filled darker red.
+    const heartFill = "#b61f2d";
+
+    // Lucide-react Heart (v0.447.0)
+    const heartPath = new Path2D(
+      "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+    );
+
+    // Flip so it shows correctly on the dice face (heart point down).
+    ctx.save();
+    ctx.scale(1, -1);
+
+    const heartScale = 1.25;
+    const lucideScale = 3.8 * heartScale;
+    const heartYOffset = -8;
+
+    ctx.save();
+    ctx.translate(0, heartYOffset);
+    ctx.scale(lucideScale, lucideScale);
+    ctx.translate(-12, -12);
+    ctx.fillStyle = heartFill;
+    ctx.fill(heartPath);
+    ctx.restore();
+
+    ctx.restore();
   } else if (symbolKey === "spade") {
-    ctx.fillStyle = stroke;
-    ctx.beginPath();
-    ctx.moveTo(0, -55);
-    ctx.bezierCurveTo(-32, -25, -32, 10, 0, 28);
-    ctx.bezierCurveTo(32, 10, 32, -25, 0, -55);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(0, 28);
-    ctx.lineTo(-14, 48);
-    ctx.lineTo(14, 48);
-    ctx.closePath();
-    ctx.fill();
+    // Exact Lucide Spade geometry (same as select symbol), filled solid black.
+    const spadeFill = "#0f172a";
+
+    // Lucide-react Spade (v0.447.0)
+    const spadeBodyPath = new Path2D(
+      "M5 9c-1.5 1.5-3 3.2-3 5.5A5.5 5.5 0 0 0 7.5 20c1.8 0 3-.5 4.5-2 1.5 1.5 2.7 2 4.5 2a5.5 5.5 0 0 0 5.5-5.5c0-2.3-1.5-4-3-5.5l-7-7-7 7Z"
+    );
+    const spadeStemPath = new Path2D("M12 18v4");
+
+    // Flip so it shows upright on the dice face.
+    ctx.save();
+    ctx.scale(1, -1);
+
+    const spadeScale = 1.25;
+    const lucideScale = 3.8 * spadeScale;
+    const spadeYOffset = -8;
+
+    ctx.save();
+    ctx.translate(0, spadeYOffset);
+    ctx.scale(lucideScale, lucideScale);
+    ctx.translate(-12, -12);
+
+    // Fill body
+    ctx.fillStyle = spadeFill;
+    ctx.fill(spadeBodyPath);
+
+    // Draw stem thick enough to read as filled (Lucide defines it as a stroke path)
+    ctx.strokeStyle = spadeFill;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.lineWidth = 3.2;
+    ctx.stroke(spadeStemPath);
+
+    ctx.restore();
+    ctx.restore();
   } else if (symbolKey === "diamond") {
     ctx.fillStyle = "#e73b3b";
     ctx.beginPath();
@@ -180,93 +214,120 @@ export function createSymbolTexture(
     ctx.closePath();
     ctx.fill();
   } else if (symbolKey === "crown") {
-    // Crown with 3 curved peaks of equal width, and two lines at bottom
-    // Flipped y-coordinates so it faces up correctly on the dice
-    ctx.fillStyle = "#e73b3b";
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 18;
-    
-    const peakWidth = 20; // Equal width for all peaks
-    const leftPeakCenter = -25;
-    const centerPeakCenter = 0;
-    const rightPeakCenter = 25;
-    const peakHeight = 50; // Center peak height
-    const sidePeakHeight = 40; // Side peaks height
-    const baseY = -30;
-    const valleyY = 12;
-    
-    // Draw the crown shape with 3 curved peaks (equal width)
+    // Exact Lucide Crown silhouette (same geometry as the UI icon) but filled red.
+    // Lucide icons use a 24x24 viewBox; we render that path onto the symbol canvas.
+    // Darker red fill to match the UI intensity.
+    const crownFill = "#a72834";
+    const baseFill = "#323c50";
+
+    // Lucide-react Crown body path (v0.447.0)
+    const crownBodyPath = new Path2D(
+      "M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z"
+    );
+
+    // The dice face UV for this symbol ends up vertically inverted.
+    // Flip the crown (and its base line) here so it appears upright on the rendered dice.
+    ctx.save();
+    ctx.scale(1, -1);
+
+    // Fit the 24x24 Lucide crown into our ~100x100 symbol space.
+    // Increase crown size by 30%.
+    const crownScale = 1.3;
+    const lucideScale = 3.6 * crownScale; // 24 * 3.6 = 86.4 units (baseline)
+    const crownYOffset = -14; // move up to create room for the base line
+    const crownBottomY = crownYOffset + (17 - 12) * lucideScale; // crown body ends around y≈17 in the Lucide viewBox
+    const gapSize = 8 * crownScale;
+
+    ctx.save();
+    ctx.translate(0, crownYOffset);
+    ctx.scale(lucideScale, lucideScale);
+    ctx.translate(-12, -12); // center the 24x24 icon at (0,0)
+    ctx.fillStyle = crownFill;
+    ctx.fill(crownBodyPath);
+    ctx.restore();
+
+    // Dark horizontal base line with a clear gap under the crown
+    ctx.fillStyle = baseFill;
     ctx.beginPath();
-    // Start from bottom left
-    ctx.moveTo(-45, baseY);
-    // Left peak (curved, equal width)
-    ctx.lineTo(leftPeakCenter - peakWidth/2, valleyY); // Left base
-    ctx.bezierCurveTo(
-      leftPeakCenter - peakWidth/2, valleyY + 10,
-      leftPeakCenter - peakWidth/4, valleyY + 25,
-      leftPeakCenter, sidePeakHeight
-    ); // Curved left to center
-    ctx.bezierCurveTo(
-      leftPeakCenter + peakWidth/4, valleyY + 25,
-      leftPeakCenter + peakWidth/2, valleyY + 10,
-      leftPeakCenter + peakWidth/2, valleyY
-    ); // Curved center to right
-    ctx.lineTo(centerPeakCenter - peakWidth/2, valleyY); // Valley to center peak
-    // Center peak (tallest, equal width)
-    ctx.bezierCurveTo(
-      centerPeakCenter - peakWidth/2, valleyY + 10,
-      centerPeakCenter - peakWidth/4, valleyY + 30,
-      centerPeakCenter, peakHeight
-    ); // Curved left to center
-    ctx.bezierCurveTo(
-      centerPeakCenter + peakWidth/4, valleyY + 30,
-      centerPeakCenter + peakWidth/2, valleyY + 10,
-      centerPeakCenter + peakWidth/2, valleyY
-    ); // Curved center to right
-    ctx.lineTo(rightPeakCenter - peakWidth/2, valleyY); // Valley to right peak
-    // Right peak (curved, equal width)
-    ctx.bezierCurveTo(
-      rightPeakCenter - peakWidth/2, valleyY + 10,
-      rightPeakCenter - peakWidth/4, valleyY + 25,
-      rightPeakCenter, sidePeakHeight
-    ); // Curved left to center
-    ctx.bezierCurveTo(
-      rightPeakCenter + peakWidth/4, valleyY + 25,
-      rightPeakCenter + peakWidth/2, valleyY + 10,
-      rightPeakCenter + peakWidth/2, valleyY
-    ); // Curved center to right
-    ctx.lineTo(45, baseY); // Bottom right
+    const baseLineY = crownBottomY + gapSize;
+    const baseLineHeight = 8 * crownScale;
+    const baseLineWidth = 84 * crownScale;
+    const baseLineRadius = 4 * crownScale;
+    ctx.moveTo(-baseLineWidth / 2 + baseLineRadius, baseLineY);
+    ctx.lineTo(baseLineWidth / 2 - baseLineRadius, baseLineY);
+    ctx.quadraticCurveTo(
+      baseLineWidth / 2,
+      baseLineY,
+      baseLineWidth / 2,
+      baseLineY + baseLineRadius
+    );
+    ctx.lineTo(
+      baseLineWidth / 2,
+      baseLineY + baseLineHeight - baseLineRadius
+    );
+    ctx.quadraticCurveTo(
+      baseLineWidth / 2,
+      baseLineY + baseLineHeight,
+      baseLineWidth / 2 - baseLineRadius,
+      baseLineY + baseLineHeight
+    );
+    ctx.lineTo(-baseLineWidth / 2 + baseLineRadius, baseLineY + baseLineHeight);
+    ctx.quadraticCurveTo(
+      -baseLineWidth / 2,
+      baseLineY + baseLineHeight,
+      -baseLineWidth / 2,
+      baseLineY + baseLineHeight - baseLineRadius
+    );
+    ctx.lineTo(-baseLineWidth / 2, baseLineY + baseLineRadius);
+    ctx.quadraticCurveTo(
+      -baseLineWidth / 2,
+      baseLineY,
+      -baseLineWidth / 2 + baseLineRadius,
+      baseLineY
+    );
     ctx.closePath();
     ctx.fill();
-    
-    // Draw two base lines at bottom (matching the symbol design)
-    ctx.beginPath();
-    // First line (top line of base)
-    ctx.moveTo(-45, -25);
-    ctx.lineTo(45, -25);
-    ctx.lineWidth = 18;
-    ctx.stroke();
-    // Second line (bottom line of base)
-    ctx.beginPath();
-    ctx.moveTo(-45, baseY);
-    ctx.lineTo(45, baseY);
-    ctx.lineWidth = 18;
-    ctx.stroke();
+
+    ctx.restore();
   } else if (symbolKey === "flag") {
-    // Flag with pole at top, flag hanging down (flipped y so it faces down correctly)
-    ctx.fillStyle = stroke;
-    const poleX = -28;
-    ctx.lineWidth = 16;
-    // Pole: top to bottom (flipped y-coordinates)
-    ctx.beginPath();
-    ctx.moveTo(poleX, 52); // Top of pole (flipped: positive y is top)
-    ctx.lineTo(poleX, -54); // Bottom of pole (flipped: negative y is bottom)
-    ctx.stroke();
-    // Flag hanging down from pole
-    ctx.fillStyle = "#e73b3b";
-    ctx.fillRect(poleX, 34, 66, 46); // Flag starts at top, extends down
-    ctx.strokeStyle = stroke;
-    ctx.strokeRect(poleX, 34, 66, 46);
+    // Exact Lucide Flag geometry (same as select symbol), with black border and red fill.
+    const flagFill = "#b61f2d";
+    const flagStroke = stroke;
+
+    // Lucide-react Flag (v0.447.0)
+    const flagClothPath = new Path2D(
+      "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"
+    );
+    const polePath = new Path2D("M4 22V15");
+
+    // The dice face UV for this symbol ends up vertically inverted.
+    // Flip here so the flag matches the UI (pole on the left, flag waving right).
+    ctx.save();
+    ctx.scale(1, -1);
+
+    const flagScale = 1.25;
+    const lucideScale = 3.8 * flagScale; // 24 * 3.8 ≈ 91.2 (baseline)
+    const flagYOffset = -10;
+
+    ctx.save();
+    ctx.translate(0, flagYOffset);
+    ctx.scale(lucideScale, lucideScale);
+    ctx.translate(-12, -12);
+
+    // Fill cloth
+    ctx.fillStyle = flagFill;
+    ctx.fill(flagClothPath);
+
+    // Stroke cloth + pole
+    ctx.strokeStyle = flagStroke;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.lineWidth = 2.2;
+    ctx.stroke(flagClothPath);
+    ctx.stroke(polePath);
+
+    ctx.restore();
+    ctx.restore();
   }
 
   ctx.restore();
