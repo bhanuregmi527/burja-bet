@@ -11,7 +11,7 @@ export function useGame() {
   const [diceResults, setDiceResults] = useState<SymbolKey[]>([]);
   const [crashStop, setCrashStop] = useState(0);
   const [crashStopped, setCrashStopped] = useState(false);
-  const [countdown, setCountdown] = useState(15);
+  const [countdown, setCountdown] = useState(20);
 
   const setPhaseState = (next: GamePhase) => {
     phaseRef.current = next;

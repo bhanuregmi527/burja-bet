@@ -207,9 +207,27 @@ export const placeBet = async (
 /**
  * Check if token is expired
  */
+const decodeBase64Url = (input: string): string => {
+  // JWT uses base64url encoding, not classic base64.
+  const base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+  return atob(padded);
+};
+
+export const decodeJwtPayload = <T = any>(token: string): T | null => {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    return JSON.parse(decodeBase64Url(parts[1])) as T;
+  } catch {
+    return null;
+  }
+};
+
 export const isTokenExpired = (token: string): boolean => {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
+    const payload: any = decodeJwtPayload(token);
+    if (!payload || typeof payload.exp !== 'number') return true;
     return payload.exp * 1000 < Date.now();
   } catch {
     return true;

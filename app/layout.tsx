@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { WalletProvider } from "@/components/WalletProvider";
+import { AuthProvider } from "@/hooks/useAuth";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -32,7 +33,7 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrains.variable} antialiased bg-[#0b1120] text-white`}
       >
         <WalletProvider>
-          {children}
+          <AuthProvider>{children}</AuthProvider>
         </WalletProvider>
       </body>
     </html>

@@ -18,10 +18,11 @@ import type { SymbolKey } from '@/lib/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useGameSocket } from '@/hooks/useGameSocket';
 import { useGame } from '@/hooks/useGame';
-import { useDiceRoll } from '@/hooks/useDiceRoll';
+import { useDiceRoll, type RollOptions } from '@/hooks/useDiceRoll';
 import { useDiceRollSound } from '@/hooks/useDiceRollSound';
 import { getSymbolStyle } from '@/utils/symbolStyles';
 import { createSymbolTexture, createSymbolTileDataUrl } from '@/utils/symbolTexture';
+import { getFaceOrientations } from '@/utils/diceHelpers';
 import { WalletButton } from '@/components/WalletButton';
 import { useDeposit } from '@/hooks/useDeposit';
 import { useSolBalance } from '@/hooks/useSolBalance';
@@ -40,6 +41,9 @@ export default function Home() {
   const showRollingOverlayRef = useRef(false);
   const rollingOverlayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const overlayMinElapsedRef = useRef(false);
+  // Once we receive dice results for a round, keep UI in "show" until the next lobby starts.
+  // This prevents backend `timer:update` ticks still in phase=rolling from flipping the label back to "Rolling...".
+  const lockShowUntilLobbyRef = useRef(false);
 
   const setRollingOverlay = useCallback((next: boolean) => {
     showRollingOverlayRef.current = next;
@@ -171,8 +175,8 @@ export default function Home() {
   });
 
   // Keep a stable reference to the latest roll handler so the countdown interval
-  // doesn't get recreated (which would keep resetting the timer back to 15).
-  const handleRollRef = useRef<(() => void) | null>(null);
+  // doesn't get recreated (which would keep resetting the timer back to 20).
+  const handleRollRef = useRef<((opts?: RollOptions) => void) | null>(null);
   useEffect(() => {
     handleRollRef.current = handleRoll;
   }, [handleRoll]);
@@ -221,6 +225,12 @@ export default function Home() {
       }
     },
     onPhase: (nextPhase) => {
+      // If we already have results, ignore mid-round phase ticks until the next lobby starts.
+      if (lockShowUntilLobbyRef.current) {
+        if (nextPhase !== "lobby") return;
+        lockShowUntilLobbyRef.current = false;
+      }
+
       setPhaseState(nextPhase);
 
       if (nextPhase === "rolling") {
@@ -240,7 +250,58 @@ export default function Home() {
       }
     },
     onDiceResults: (symbols) => {
+      lockShowUntilLobbyRef.current = true;
       setLastResults(symbols);
+      // Set dice results immediately so they match the displayed results
+      setDiceResults(symbols);
+      // Set target rotations to match the symbols and immediately snap dice to them
+      // Camera is at (0, 4, 20) looking at (0, 0, 0), so it views from above and behind
+      // The "front" face (crown) should be most visible, but we need to rotate so the result symbol is on the front face
+      if (diceMeshesRef.current.length > 0 && symbols.length === diceMeshesRef.current.length) {
+        // BoxGeometry face order: right(0), left(1), top(2), bottom(3), front(4), back(5)
+        // Symbol order: ["heart", "spade", "diamond", "club", "crown", "flag"]
+        const symbolOrder: SymbolKey[] = ["heart", "spade", "diamond", "club", "crown", "flag"];
+        
+        diceTargetRotationsRef.current = symbols.map((symbol) => {
+          const symbolIndex = symbolOrder.indexOf(symbol);
+          if (symbolIndex === -1) {
+            // Default to front face (crown) if symbol not found
+            return new THREE.Euler(0, 0, 0, 'XYZ');
+          }
+          
+          // Rotate the die so the face with the target symbol becomes the front face (most visible to camera)
+          // Front face (index 4) = crown (index 4) at rotation (0, 0, 0)
+          // Right face (index 0) = heart (index 0) at rotation (0, Math.PI/2, 0)
+          // Left face (index 1) = spade (index 1) at rotation (0, -Math.PI/2, 0)
+          // Back face (index 5) = flag (index 5) at rotation (0, Math.PI, 0)
+          // Top face (index 2) = diamond (index 2) at rotation (-Math.PI/2, 0, 0)
+          // Bottom face (index 3) = club (index 3) at rotation (Math.PI/2, 0, 0)
+          
+          switch (symbolIndex) {
+            case 0: // heart (right face) -> rotate to front
+              return new THREE.Euler(0, -Math.PI / 2, 0, 'XYZ');
+            case 1: // spade (left face) -> rotate to front
+              return new THREE.Euler(0, Math.PI / 2, 0, 'XYZ');
+            case 2: // diamond (top face) -> rotate to front
+              return new THREE.Euler(Math.PI / 2, 0, 0, 'XYZ');
+            case 3: // club (bottom face) -> rotate to front
+              return new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ');
+            case 4: // crown (front face) -> already front
+              return new THREE.Euler(0, 0, 0, 'XYZ');
+            case 5: // flag (back face) -> rotate to front
+              return new THREE.Euler(0, Math.PI, 0, 'XYZ');
+            default:
+              return new THREE.Euler(0, 0, 0, 'XYZ');
+          }
+        });
+        
+        // Immediately snap dice to target rotations so faces match results exactly
+        diceMeshesRef.current.forEach((mesh, idx) => {
+          if (diceTargetRotationsRef.current[idx]) {
+            mesh.rotation.copy(diceTargetRotationsRef.current[idx]);
+          }
+        });
+      }
       setRolling(false);
       isRollingRef.current = false;
       diceVelRef.current.forEach((v) => v?.set?.(0, 0, 0));
@@ -251,7 +312,6 @@ export default function Home() {
         clearTimeout(rollingOverlayTimerRef.current);
         rollingOverlayTimerRef.current = null;
       }
-      handleRollRef.current?.({ forcedResults: symbols, overrideRolling: true });
     },
   });
 
@@ -716,7 +776,7 @@ export default function Home() {
                   Fund your roll before countdown ends
                 </p>
                 <p className="text-sm text-slate-300">
-                  15s lobby window, then dice roll automatically with live reveal.
+                  20s lobby window, then dice roll automatically with live reveal.
                 </p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
@@ -806,7 +866,7 @@ export default function Home() {
               </div>
               <button
                 onClick={handleDeposit}
-                disabled={depositBusy}
+                disabled={depositBusy || phase !== "lobby"}
                 className="rounded-xl border border-[#14F195]/60 bg-[#14F195]/15 px-4 py-3 text-sm font-semibold text-[#14F195] shadow-[0_0_20px_rgba(20,241,149,0.35)] transition hover:border-[#14F195] hover:bg-[#14F195]/25 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 Place Bet
@@ -824,7 +884,7 @@ export default function Home() {
               )}
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span className="h-2 w-2 rounded-full bg-[#14F195]" />
-                Lobby timer runs for 15s, then rolls automatically.
+                Lobby timer runs for 20s, then rolls automatically.
               </div>
             </div>
 

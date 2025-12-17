@@ -11,7 +11,7 @@ import { useSolBalance } from '@/hooks/useSolBalance';
 export function WalletButton() {
   const { publicKey, connected, connecting, disconnect, wallet } = useWallet();
   const { setVisible } = useWalletModal();
-  const { user, isLoggingIn, clearAuth } = useAuth();
+  const { user, isLoggingIn, accessToken, loginWithWallet, clearAuth } = useAuth();
   const { balance } = useSolBalance();
   const [showDropdown, setShowDropdown] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -19,6 +19,21 @@ export function WalletButton() {
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Only request a signature right after the user explicitly clicked connect.
+  // This prevents Phantom "Sign Message" popups on page reloads/autoconnect.
+  useEffect(() => {
+    if (!connected) return;
+    if (accessToken) return;
+    if (isLoggingIn) return;
+    if (typeof window === 'undefined') return;
+    if (sessionStorage.getItem('loginOnConnect') !== 'true') return;
+
+    sessionStorage.removeItem('loginOnConnect');
+    loginWithWallet().catch(() => {
+      // Ignore here; UI will remain connected but not signed in.
+    });
+  }, [connected, accessToken, isLoggingIn, loginWithWallet]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -63,6 +78,7 @@ export function WalletButton() {
 
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('walletDisconnected');
+      sessionStorage.setItem('loginOnConnect', 'true');
     }
     setVisible(true);
   };

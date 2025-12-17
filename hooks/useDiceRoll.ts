@@ -19,7 +19,7 @@ interface UseDiceRollParams {
   isRollingRef: React.MutableRefObject<boolean>;
 }
 
-interface RollOptions {
+export interface RollOptions {
   silent?: boolean;
   forcedResults?: SymbolKey[];
   overrideRolling?: boolean;
