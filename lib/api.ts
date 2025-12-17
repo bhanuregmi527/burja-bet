@@ -1,6 +1,12 @@
 // API utility functions for authentication and gameplay
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+// Gateway (HTTP REST for /game/*)
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3004';
+
+// Auth-service (HTTP REST for /login, /user/update)
+const AUTH_BASE_URL =
+  process.env.NEXT_PUBLIC_AUTH_BASE_URL || 'http://localhost:3001';
 
 export interface RequestHeader {
   RequestId?: string;
@@ -88,7 +94,8 @@ export interface ErrorResponse {
 }
 
 export interface PlaceBetRequestBody {
-  amount: number;
+  // Gateway expects amount as string (DTO uses @IsString)
+  amount: string;
   symbol: string;
 }
 
@@ -119,7 +126,8 @@ export const login = async (
     String.fromCharCode(...Array.from(signature))
   );
 
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+  // Login goes directly to auth-service (gateway should not proxy login)
+  const response = await fetch(`${AUTH_BASE_URL}/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -152,7 +160,8 @@ export const updateUserProfile = async (
   accessToken: string,
   updates: UpdateUserRequestBody
 ): Promise<UpdateUserResponse> => {
-  const response = await fetch(`${API_BASE_URL}/user/update`, {
+  // Update profile goes directly to auth-service
+  const response = await fetch(`${AUTH_BASE_URL}/user/update`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -178,6 +187,31 @@ export const updateUserProfile = async (
 /**
  * Place a bet via the gateway (JWT required)
  */
+export const prepareBet = async (
+  accessToken: string,
+  body: PlaceBetRequestBody,
+): Promise<PlaceBetResponse> => {
+  const response = await fetch(`${API_BASE_URL}/game/bet/prepare`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: ErrorResponse = data;
+    throw new Error(
+      error.ResponseHeader?.Message || data?.message || 'Prepare bet failed'
+    );
+  }
+
+  return data;
+};
+
 export const placeBet = async (
   accessToken: string,
   body: PlaceBetRequestBody,

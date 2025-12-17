@@ -7,6 +7,7 @@ import { PROGRAM_ID } from "./program";
 const USER_BALANCE_SEED = Buffer.from("user_balance");
 const VAULT_SEED = Buffer.from("vault");
 const SYSTEM_PROGRAM = new PublicKey("11111111111111111111111111111111");
+const MEMO_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 
 const USER_DEPOSIT_DISC = Uint8Array.from([
   186, 198, 140, 233, 129, 39, 98, 153,
@@ -39,6 +40,14 @@ export function buildUserDepositIx(user: PublicKey, amountLamports: bigint) {
       { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
     ],
     data,
+  });
+}
+
+export function buildMemoIx(memo: string) {
+  return new TransactionInstruction({
+    programId: MEMO_PROGRAM,
+    keys: [],
+    data: Buffer.from(memo, "utf8"),
   });
 }
 

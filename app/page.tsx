@@ -26,13 +26,14 @@ import { getFaceOrientations } from '@/utils/diceHelpers';
 import { WalletButton } from '@/components/WalletButton';
 import { useDeposit } from '@/hooks/useDeposit';
 import { useSolBalance } from '@/hooks/useSolBalance';
+import { placeBet } from '@/lib/api';
 
 export default function Home() {
   const { setVisible } = useWalletModal();
-  const { publicKey } = useWallet();
-  const { user, isLoggingIn, accessToken } = useAuth();
+  const { publicKey, signTransaction, signMessage } = useWallet();
+  const { user, isLoggingIn, accessToken, loginWithWallet } = useAuth();
   const { deposit } = useDeposit();
-  const { balance } = useSolBalance();
+  const { balance, refreshBalance } = useSolBalance();
   const [depositBusy, setDepositBusy] = useState(false);
   const [depositStatus, setDepositStatus] = useState<string | null>(null);
   const [depositSuccess, setDepositSuccess] = useState(false);
@@ -41,6 +42,11 @@ export default function Home() {
   const showRollingOverlayRef = useRef(false);
   const rollingOverlayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const overlayMinElapsedRef = useRef(false);
+  // Ensure dice roll animation is visible for a short time even if results arrive fast.
+  const minRollStartedAtRef = useRef<number>(0);
+  const pendingDiceResultsRef = useRef<SymbolKey[] | null>(null);
+  const pendingDiceResultsTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const MIN_ROLL_MS = 1200;
   // Once we receive dice results for a round, keep UI in "show" until the next lobby starts.
   // This prevents backend `timer:update` ticks still in phase=rolling from flipping the label back to "Rolling...".
   const lockShowUntilLobbyRef = useRef(false);
@@ -58,6 +64,7 @@ export default function Home() {
   const diceMeshesRef = useRef<any[]>([]);
   const diceVelRef = useRef<any[]>([]);
   const diceTargetRotationsRef = useRef<any[]>([]);
+  const diceBasePosRef = useRef<any[]>([]);
   const animationIdRef = useRef<number | null>(null);
   const isRollingRef = useRef<boolean>(false);
 
@@ -66,6 +73,8 @@ export default function Home() {
     setSelectedSymbols,
     betAmount,
     setBetAmount,
+    roundId,
+    setRoundId,
     phase,
     phaseRef,
     setPhaseState,
@@ -124,36 +133,209 @@ export default function Home() {
   const handleDeposit = async () => {
     setDepositStatus(null);
 
-    if (!publicKey) {
-      setDepositStatus("Connect your wallet to deposit.");
-      setVisible(true);
-      return;
-    }
-
+    // Step 1: Validate symbol selection FIRST (as user requested)
     if (!selectedSymbols || selectedSymbols.length === 0) {
-      setDepositStatus("Select at least one symbol before depositing.");
+      setDepositStatus("Select a symbol before placing bet.");
       return;
     }
 
+    // Step 2: Validate bet amount
     if (!betAmount || betAmount <= 0) {
       setDepositStatus("Enter an amount greater than 0.");
       return;
     }
 
+    // Step 3: Check wallet connection
+    if (!publicKey) {
+      setDepositStatus("Connect your wallet to place bet.");
+      setVisible(true);
+      return;
+    }
+
+    if (!signTransaction) {
+      setDepositStatus("Wallet not ready for transactions. Please reconnect your wallet.");
+      setVisible(true);
+      return;
+    }
+
+    // IMPORTANT UX: deposit should happen first (Phantom tx prompt),
+    // then signMessage/login happens after deposit confirms.
+    // So we do NOT sign in here anymore.
+
+    // Step 5: Validate balance
     if (balance !== null && betAmount > balance) {
-      setDepositStatus("Insufficient balance for this deposit.");
+      setDepositStatus("Insufficient balance for this bet.");
+      return;
+    }
+
+    // Step 6: Validate betting phase
+    if (phase !== "lobby") {
+      setDepositStatus("Betting is closed. Wait for the next round.");
       return;
     }
 
     setDepositBusy(true);
     try {
-      await deposit(betAmount);
-      setDepositStatus("Deposit submitted. Please approve in wallet (if prompted).");
+      // Step 7: Deposit on-chain FIRST (opens Phantom for signing)
+      // If multi-select: each symbol gets full betAmount, so deposit total = betAmount * selectedSymbols.length
+      const totalDepositAmount = betAmount * selectedSymbols.length;
+      const memo = roundId ? `burja_round:${roundId}` : null;
+
+      if (!memo) {
+        setDepositStatus("Round not ready yet. Please wait and try again.");
+        setDepositBusy(false);
+        return;
+      }
+
+      console.log("[PlaceBet] starting deposit", {
+        selectedSymbols,
+        betAmount,
+        totalDepositAmount,
+        roundId,
+        wallet: publicKey?.toBase58?.(),
+        phase,
+      });
+      setDepositStatus("Approve deposit in Phantom...");
+      try {
+        const depositSig = await deposit(totalDepositAmount, memo);
+        console.log("[PlaceBet] deposit confirmed", { depositSig, totalDepositAmount });
+      } catch (error: any) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[PlaceBet] deposit failed", { message, error });
+        if (message.includes("rejected") || message.includes("User rejected") || message.includes("user rejected")) {
+          setDepositStatus("Transaction cancelled. Please try again.");
+        } else {
+          setDepositStatus(`Deposit failed: ${message}`);
+          setVisible(true);
+        }
+        setDepositBusy(false);
+        return;
+      }
+
+      // Step 8: After deposit confirms, sign in (if needed), then place bet(s) via API.
+      let currentAccessToken = accessToken;
+      if (!currentAccessToken) {
+        if (!signMessage) {
+          setDepositStatus("Wallet not ready for sign-in. Please reconnect your wallet.");
+          setVisible(true);
+          setDepositBusy(false);
+          return;
+        }
+
+        setDepositStatus("Deposit confirmed. Signing in...");
+        try {
+          currentAccessToken = await loginWithWallet();
+          console.log("[PlaceBet] loginWithWallet success", {
+            hasToken: Boolean(currentAccessToken),
+            wallet: publicKey?.toBase58?.(),
+          });
+        } catch (error: any) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("[PlaceBet] loginWithWallet failed", { message, error });
+          if (message.includes("rejected") || message.includes("User rejected")) {
+            setDepositStatus("Sign-in cancelled. Please try again.");
+          } else {
+            setDepositStatus(`Sign-in failed: ${message}. Please try again.`);
+          }
+          setDepositBusy(false);
+          return;
+        }
+      }
+
+      // Deposit credit to backend can be async (Kafka). Retry a few times if backend still
+      // says insufficient balance OR "no deposit for current round" (round deposit ledger not updated yet).
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const placeBetWithRetry = async (symbol: string) => {
+        const maxAttempts = 10;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          console.log("[PlaceBet] calling /game/bet", {
+            symbol,
+            amount: betAmount.toString(),
+            attempt,
+            maxAttempts,
+          });
+
+          try {
+            const res = await placeBet(currentAccessToken!, {
+              amount: betAmount.toString(),
+              symbol,
+            });
+
+            // IMPORTANT: gateway returns 200 even on logical failure (success=false).
+            // We must retry based on response message, not only thrown errors.
+            if (!res?.success) {
+              const msg = (res?.message || "").toString();
+              const lower = msg.toLowerCase();
+              const isDepositPropagation =
+                lower.includes("insufficient balance") ||
+                lower.includes("no sufficient deposit for current round") ||
+                lower.includes("no deposit for round");
+
+              console.warn("[PlaceBet] /game/bet returned success=false", {
+                symbol,
+                amount: betAmount.toString(),
+                attempt,
+                message: msg,
+              });
+
+              if (isDepositPropagation && attempt < maxAttempts) {
+                setDepositStatus(
+                  `Waiting for deposit credit... (${attempt}/${maxAttempts - 1})`,
+                );
+                await sleep(1000);
+                continue;
+              }
+
+              // Non-retriable failure: surface it to UI
+              throw new Error(msg || "Bet failed");
+            }
+
+            return res;
+          } catch (e: any) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error("[PlaceBet] /game/bet failed", {
+              symbol,
+              amount: betAmount.toString(),
+              attempt,
+              message: msg,
+              error: e,
+            });
+
+            const lower = msg.toLowerCase();
+            const isDepositPropagation =
+              lower.includes("insufficient balance") ||
+              lower.includes("no sufficient deposit for current round") ||
+              lower.includes("no deposit for round");
+
+            if (isDepositPropagation && attempt < maxAttempts) {
+              setDepositStatus(
+                `Waiting for deposit credit... (${attempt}/${maxAttempts - 1})`,
+              );
+              await sleep(1000);
+              continue;
+            }
+            throw e;
+          }
+        }
+      };
+
+      const results = await Promise.all(selectedSymbols.map((s) => placeBetWithRetry(s)));
+      const successCount = results.filter((r) => r?.success).length;
+
+      if (successCount === selectedSymbols.length) {
+        setDepositStatus(`Bet placed successfully on ${selectedSymbols.length} symbol(s)!`);
+      } else {
+        setDepositStatus(`Bet placed on ${successCount}/${selectedSymbols.length} symbol(s). Some may have failed.`);
+      }
+
       setDepositSuccess(true);
       setTimeout(() => setDepositSuccess(false), 2500);
+      
+      // Refresh balance after deposits
+      refreshBalance();
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
-      setDepositStatus(`Deposit failed: ${message}`);
+      setDepositStatus(`Bet failed: ${message}`);
     } finally {
       setDepositBusy(false);
     }
@@ -183,6 +365,9 @@ export default function Home() {
 
   // Wire up backend-driven phases/timer/dice via Socket.io
   const { connected: socketConnected } = useGameSocket({
+    onRoundId: (id) => {
+      setRoundId(id);
+    },
     onCountdown: (seconds) => {
       setCountdown(seconds);
 
@@ -210,6 +395,7 @@ export default function Home() {
           overlayMinElapsedRef.current = true;
           setRollingOverlay(false);
           // Start free rolling until result arrives
+          minRollStartedAtRef.current = Date.now();
           handleRollRef.current?.({ overrideRolling: true });
         }, 1000);
       }
@@ -250,68 +436,80 @@ export default function Home() {
       }
     },
     onDiceResults: (symbols) => {
-      lockShowUntilLobbyRef.current = true;
+      // Keep results, but delay snapping so users see 1-2s of dice roll animation.
+      pendingDiceResultsRef.current = symbols;
       setLastResults(symbols);
-      // Set dice results immediately so they match the displayed results
-      setDiceResults(symbols);
-      // Set target rotations to match the symbols and immediately snap dice to them
-      // Camera is at (0, 4, 20) looking at (0, 0, 0), so it views from above and behind
-      // The "front" face (crown) should be most visible, but we need to rotate so the result symbol is on the front face
-      if (diceMeshesRef.current.length > 0 && symbols.length === diceMeshesRef.current.length) {
-        // BoxGeometry face order: right(0), left(1), top(2), bottom(3), front(4), back(5)
-        // Symbol order: ["heart", "spade", "diamond", "club", "crown", "flag"]
-        const symbolOrder: SymbolKey[] = ["heart", "spade", "diamond", "club", "crown", "flag"];
-        
-        diceTargetRotationsRef.current = symbols.map((symbol) => {
-          const symbolIndex = symbolOrder.indexOf(symbol);
-          if (symbolIndex === -1) {
-            // Default to front face (crown) if symbol not found
-            return new THREE.Euler(0, 0, 0, 'XYZ');
-          }
-          
-          // Rotate the die so the face with the target symbol becomes the front face (most visible to camera)
-          // Front face (index 4) = crown (index 4) at rotation (0, 0, 0)
-          // Right face (index 0) = heart (index 0) at rotation (0, Math.PI/2, 0)
-          // Left face (index 1) = spade (index 1) at rotation (0, -Math.PI/2, 0)
-          // Back face (index 5) = flag (index 5) at rotation (0, Math.PI, 0)
-          // Top face (index 2) = diamond (index 2) at rotation (-Math.PI/2, 0, 0)
-          // Bottom face (index 3) = club (index 3) at rotation (Math.PI/2, 0, 0)
-          
-          switch (symbolIndex) {
-            case 0: // heart (right face) -> rotate to front
-              return new THREE.Euler(0, -Math.PI / 2, 0, 'XYZ');
-            case 1: // spade (left face) -> rotate to front
-              return new THREE.Euler(0, Math.PI / 2, 0, 'XYZ');
-            case 2: // diamond (top face) -> rotate to front
-              return new THREE.Euler(Math.PI / 2, 0, 0, 'XYZ');
-            case 3: // club (bottom face) -> rotate to front
-              return new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ');
-            case 4: // crown (front face) -> already front
-              return new THREE.Euler(0, 0, 0, 'XYZ');
-            case 5: // flag (back face) -> rotate to front
-              return new THREE.Euler(0, Math.PI, 0, 'XYZ');
-            default:
-              return new THREE.Euler(0, 0, 0, 'XYZ');
-          }
-        });
-        
-        // Immediately snap dice to target rotations so faces match results exactly
-        diceMeshesRef.current.forEach((mesh, idx) => {
-          if (diceTargetRotationsRef.current[idx]) {
-            mesh.rotation.copy(diceTargetRotationsRef.current[idx]);
-          }
-        });
-      }
-      setRolling(false);
-      isRollingRef.current = false;
-      diceVelRef.current.forEach((v) => v?.set?.(0, 0, 0));
-      // Immediately exit rolling phase/overlay once results arrive.
-      setPhaseState("show");
+
+      // Ensure overlay is hidden so dice are visible.
       setRollingOverlay(false);
       if (rollingOverlayTimerRef.current) {
         clearTimeout(rollingOverlayTimerRef.current);
         rollingOverlayTimerRef.current = null;
       }
+
+      // Keep rolling until we apply final results.
+      setPhaseState("rolling");
+      setRolling(true);
+      isRollingRef.current = true;
+
+      const startedAt = minRollStartedAtRef.current || Date.now();
+      if (!minRollStartedAtRef.current) minRollStartedAtRef.current = startedAt;
+      const waitMs = Math.max(0, MIN_ROLL_MS - (Date.now() - startedAt));
+
+      if (pendingDiceResultsTimerRef.current) {
+        clearTimeout(pendingDiceResultsTimerRef.current);
+      }
+
+      pendingDiceResultsTimerRef.current = setTimeout(() => {
+        const final = pendingDiceResultsRef.current || symbols;
+        lockShowUntilLobbyRef.current = true;
+
+        // Apply dice results and snap to matching faces
+        setDiceResults(final);
+
+        if (diceMeshesRef.current.length > 0 && final.length === diceMeshesRef.current.length) {
+          const symbolOrder: SymbolKey[] = ["heart", "spade", "diamond", "club", "crown", "flag"];
+          diceTargetRotationsRef.current = final.map((symbol) => {
+            const symbolIndex = symbolOrder.indexOf(symbol);
+            if (symbolIndex === -1) return new THREE.Euler(0, 0, 0, 'XYZ');
+            switch (symbolIndex) {
+              case 0: return new THREE.Euler(0, -Math.PI / 2, 0, 'XYZ');
+              case 1: return new THREE.Euler(0, Math.PI / 2, 0, 'XYZ');
+              case 2: return new THREE.Euler(Math.PI / 2, 0, 0, 'XYZ');
+              case 3: return new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ');
+              case 4: return new THREE.Euler(0, 0, 0, 'XYZ');
+              case 5: return new THREE.Euler(0, Math.PI, 0, 'XYZ');
+              default: return new THREE.Euler(0, 0, 0, 'XYZ');
+            }
+          });
+
+          diceMeshesRef.current.forEach((mesh, idx) => {
+            if (diceTargetRotationsRef.current[idx]) {
+              mesh.rotation.copy(diceTargetRotationsRef.current[idx]);
+            }
+          });
+        }
+
+        setRolling(false);
+        isRollingRef.current = false;
+        diceVelRef.current.forEach((v) => v?.set?.(0, 0, 0));
+        setPhaseState("show");
+
+        pendingDiceResultsRef.current = null;
+        pendingDiceResultsTimerRef.current = null;
+        minRollStartedAtRef.current = 0;
+      }, waitMs);
+      
+      // Refresh balance after a delay to allow payout transaction to process
+      // Payouts are sent via Kafka and may take a few seconds
+      setTimeout(() => {
+        refreshBalance();
+      }, 2000); // Check after 2 seconds
+      
+      // Also refresh again after 5 seconds to catch delayed payouts
+      setTimeout(() => {
+        refreshBalance();
+      }, 5000);
     },
   });
 
@@ -570,6 +768,7 @@ export default function Home() {
     cameraRef.current = camera;
     diceMeshesRef.current = diceMeshes;
     diceVelRef.current = diceVelocities;
+    diceBasePosRef.current = diceMeshes.map((m) => m.position.clone());
     
     // Initialize target rotations - one of 6 face-aligned orientations
     const faceOrientations = [
@@ -598,29 +797,64 @@ export default function Home() {
       return angle;
     };
 
+    // Use delta time so spin feels consistent across different FPS.
+    let lastTs = typeof performance !== "undefined" ? performance.now() : Date.now();
+
+    // Tuning knobs for uniform, natural-looking roll.
+    const ROLL_SPIN_SPEED = 2.2; // rotation speed multiplier
+    const TARGET_ANGULAR_SPEED = 12.0; // target angular velocity magnitude (rad/s) - uniform across all dice
+    const ROLL_DAMPING_PER_SEC = 0.05; // minimal damping to maintain speed (lower = less damping)
+    const tmpQuat = new THREE.Quaternion();
+    const tmpEuler = new THREE.Euler(0, 0, 0, "XYZ");
+
     const tick = () => {
+      const nowTs = typeof performance !== "undefined" ? performance.now() : Date.now();
+      const dt = Math.min(0.05, Math.max(0.012, (nowTs - lastTs) / 1000));
+      lastTs = nowTs;
+
       diceMeshesRef.current.forEach((mesh, idx) => {
         const vel = diceVelRef.current[idx];
         const targetRot = diceTargetRotationsRef.current[idx];
+        const basePos = diceBasePosRef.current[idx];
         
-        // If still rolling, keep dice spinning continuously with subtle torque so it feels physical, not swiped.
+        // If still rolling, maintain uniform angular velocity
         if (isRollingRef.current) {
-          // Re-energize if velocity gets too low and inject a tiny wobble on all axes.
-          if (vel.length() < 6.0) {
-            vel.x += (Math.random() - 0.5) * 2.4;
-            vel.y += (Math.random() - 0.5) * 2.4;
-            vel.z += (Math.random() - 0.5) * 2.4;
+          // Maintain constant angular velocity magnitude for uniform speed
+          const currentSpeed = vel.length();
+          if (currentSpeed > 0.01) {
+            // Normalize and scale to target speed to maintain uniform rotation
+            const scale = TARGET_ANGULAR_SPEED / currentSpeed;
+            vel.multiplyScalar(scale);
+          } else {
+            // If velocity is too low (shouldn't happen with proper initialization), reinitialize
+            const dirX = (Math.random() - 0.5) * 2;
+            const dirY = (Math.random() - 0.5) * 2;
+            const dirZ = (Math.random() - 0.5) * 2;
+            const length = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+            const scale = length > 0 ? TARGET_ANGULAR_SPEED / length : TARGET_ANGULAR_SPEED;
+            vel.set(dirX * scale, dirY * scale, dirZ * scale);
           }
 
-          vel.x += (Math.random() - 0.5) * 0.2;
-          vel.y += (Math.random() - 0.5) * 0.2;
-          vel.z += (Math.random() - 0.5) * 0.2;
-          
-          // Continue free rotation with gentle damping for a smooth tumble.
-          mesh.rotation.x += vel.x * 0.02;
-          mesh.rotation.y += vel.y * 0.02;
-          mesh.rotation.z += vel.z * 0.02;
-          vel.multiplyScalar(0.985);
+          // Apply angular velocity using quaternions (more natural than Euler-add).
+          tmpEuler.set(
+            vel.x * dt * ROLL_SPIN_SPEED,
+            vel.y * dt * ROLL_SPIN_SPEED,
+            vel.z * dt * ROLL_SPIN_SPEED,
+          );
+          tmpQuat.setFromEuler(tmpEuler);
+          mesh.quaternion.multiply(tmpQuat);
+
+          // Subtle bob so it feels like tumbling in place (not sliding).
+          if (basePos) {
+            const t = nowTs / 1000;
+            mesh.position.x = basePos.x + Math.sin(t * 7 + idx) * 0.03;
+            mesh.position.z = basePos.z + Math.cos(t * 6 + idx) * 0.03;
+            mesh.position.y = basePos.y + Math.abs(Math.sin(t * 10 + idx)) * 0.08;
+          }
+
+          // Minimal damping to maintain speed (only slight decay for natural feel)
+          const damping = Math.exp(-ROLL_DAMPING_PER_SEC * dt);
+          vel.multiplyScalar(damping);
         } else {
           // Not rolling - animate to target and stop
           const dx = normalizeAngle(targetRot.x - mesh.rotation.x);
@@ -633,13 +867,15 @@ export default function Home() {
           
           if (!shouldLerp) {
             // Still spinning fast and far from target - continue free rotation only
-            mesh.rotation.x += vel.x * 0.016;
-            mesh.rotation.y += vel.y * 0.016;
-            mesh.rotation.z += vel.z * 0.016;
-            vel.multiplyScalar(0.96);
+            mesh.rotation.x += vel.x * dt;
+            mesh.rotation.y += vel.y * dt;
+            mesh.rotation.z += vel.z * dt;
+            vel.multiplyScalar(Math.exp(-1.2 * dt));
           } else {
             // Stop applying velocity - only lerp to target
             vel.set(0, 0, 0);
+            // Reset position after roll
+            if (basePos) mesh.position.copy(basePos);
             
             // Use adaptive lerp factor - faster when far, slower when close
             let lerpFactor = 0.15;

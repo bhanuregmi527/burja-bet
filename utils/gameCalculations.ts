@@ -49,13 +49,26 @@ export function generateCrashStopPoint(): number {
 }
 
 /**
- * Generate random dice velocity
+ * Generate uniform dice velocity (constant speed, random direction for visual variety)
+ * All dice will have the same angular velocity magnitude for consistent rolling speed
  */
 export function generateDiceVelocity() {
+  // Target angular velocity magnitude (rad/s) - uniform across all dice
+  const TARGET_ANGULAR_SPEED = 12.0;
+  
+  // Random direction vector (normalized)
+  const dirX = (Math.random() - 0.5) * 2;
+  const dirY = (Math.random() - 0.5) * 2;
+  const dirZ = (Math.random() - 0.5) * 2;
+  const length = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+  
+  // Scale to target speed
+  const scale = length > 0 ? TARGET_ANGULAR_SPEED / length : TARGET_ANGULAR_SPEED;
+  
   return {
-    x: 10 + Math.random() * 15,
-    y: 10 + Math.random() * 15,
-    z: 10 + Math.random() * 15,
+    x: dirX * scale,
+    y: dirY * scale,
+    z: dirZ * scale,
   };
 }
 

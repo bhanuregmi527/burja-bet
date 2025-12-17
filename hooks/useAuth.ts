@@ -8,7 +8,7 @@ type AuthContextValue = {
   user: LoginUser | null;
   accessToken: string | null;
   isLoggingIn: boolean;
-  loginWithWallet: () => Promise<void>;
+  loginWithWallet: () => Promise<string>;
   clearAuth: () => void;
 };
 
@@ -82,25 +82,30 @@ function useProvideAuth(): AuthContextValue {
     }
   }, [connected, publicKey, accessToken]);
 
-  const loginWithWallet = async () => {
+  const loginWithWallet = async (): Promise<string> => {
     // Never auto-trigger signing on page load; call this only from explicit user actions.
     if (typeof window !== 'undefined' && sessionStorage.getItem('walletDisconnected') === 'true') {
       throw new Error('Wallet was disconnected. Please connect again.');
     }
 
     // Wait until we have restored any existing session from localStorage.
-    if (!authHydrated) return;
+    if (!authHydrated) {
+      throw new Error('Auth not ready yet. Please try again.');
+    }
 
     if (!connected || !publicKey || !signMessage) {
       throw new Error('Connect wallet to sign in');
     }
 
     if (accessToken && !isTokenExpired(accessToken)) {
-      return;
+      return accessToken;
     }
 
     const currentWallet = publicKey.toBase58();
-    if (loginAttemptedRef.current === currentWallet) return;
+    // Allow re-attempts on explicit user actions. Only block if a sign-in is actively in progress.
+    if (loginAttemptedRef.current === currentWallet && isLoggingIn) {
+      throw new Error('Sign-in in progress. Please wait.');
+    }
 
     try {
       setIsLoggingIn(true);
@@ -121,6 +126,12 @@ function useProvideAuth(): AuthContextValue {
       if (typeof window !== 'undefined') {
         sessionStorage.removeItem('walletDisconnected');
       }
+
+      return response.Response.accessToken;
+    } catch (err) {
+      // If signing/login failed or was cancelled, allow user to try again next click.
+      loginAttemptedRef.current = null;
+      throw err;
     } finally {
       setIsLoggingIn(false);
     }

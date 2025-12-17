@@ -15,6 +15,7 @@ export interface GameSocketCallbacks {
   onPhase?: (phase: GamePhase) => void;
   onRolling?: (rolling: boolean) => void;
   onDiceResults?: (symbols: SymbolKey[]) => void;
+  onRoundId?: (roundId: string) => void;
 }
 
 export function useGameSocket(callbacks: GameSocketCallbacks) {
@@ -58,6 +59,9 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
     });
 
     socket.on('round:update', (payload: any) => {
+      if (typeof payload?.roundId === 'string') {
+        callbacksRef.current.onRoundId?.(payload.roundId);
+      }
       if (typeof payload?.phase === 'number') {
         const phase = phaseMap[payload.phase] || 'lobby';
         callbacksRef.current.onPhase?.(phase);

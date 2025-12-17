@@ -70,6 +70,17 @@ export function useSolBalance() {
     };
   }, [publicKey, connection]);
 
-  return { balance, loading: false };
+  const refreshBalance = async () => {
+    if (!publicKey || !connection) return;
+    try {
+      const lamports = await connection.getBalance(publicKey);
+      const newBalance = lamports / LAMPORTS_PER_SOL;
+      setBalance(newBalance);
+    } catch (error) {
+      console.error('Error fetching balance:', error);
+    }
+  };
+
+  return { balance, loading: false, refreshBalance };
 }
 

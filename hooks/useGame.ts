@@ -5,6 +5,7 @@ import { calculateResultSummary } from '@/utils/gameCalculations';
 export function useGame() {
   const [selectedSymbols, setSelectedSymbols] = useState<SymbolKey[]>([]);
   const [betAmount, setBetAmount] = useState<number>(0.5);
+  const [roundId, setRoundId] = useState<string | null>(null);
   const [phase, setPhase] = useState<GamePhase>("lobby");
   const phaseRef = useRef<GamePhase>("lobby");
   const [rolling, setRolling] = useState(false);
@@ -27,6 +28,8 @@ export function useGame() {
     setSelectedSymbols,
     betAmount,
     setBetAmount,
+    roundId,
+    setRoundId,
     phase,
     phaseRef,
     setPhaseState,
