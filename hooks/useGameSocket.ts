@@ -10,12 +10,23 @@ const phaseMap: Record<number, GamePhase> = {
   3: 'show',
 };
 
+export interface DepositActivity {
+  player: string;
+  symbol: string;
+  amount: number;
+  won?: boolean;
+  payout?: number;
+  matches?: number;
+}
+
 export interface GameSocketCallbacks {
   onCountdown?: (seconds: number) => void;
   onPhase?: (phase: GamePhase) => void;
   onRolling?: (rolling: boolean) => void;
   onDiceResults?: (symbols: SymbolKey[]) => void;
   onRoundId?: (roundId: string) => void;
+  onDepositActivity?: (activity: DepositActivity) => void;
+  onDepositsUpdate?: (deposits: DepositActivity[]) => void;
 }
 
 export function useGameSocket(callbacks: GameSocketCallbacks) {
@@ -51,11 +62,16 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
       setConnected(false);
     });
 
-    socket.on('timer:update', (payload: { phase: number; timeRemaining: number }) => {
+    socket.on('timer:update', (payload: { phase: number; timeRemaining: number; deposits?: DepositActivity[] }) => {
       const phase = phaseMap[payload?.phase] || 'lobby';
       callbacksRef.current.onPhase?.(phase);
       callbacksRef.current.onRolling?.(phase === 'rolling');
       callbacksRef.current.onCountdown?.(Math.max(0, payload?.timeRemaining ?? 0));
+      
+      // Handle deposits from timer:update
+      if (payload?.deposits && Array.isArray(payload.deposits)) {
+        callbacksRef.current.onDepositsUpdate?.(payload.deposits);
+      }
     });
 
     socket.on('round:update', (payload: any) => {
@@ -70,6 +86,11 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
       if (typeof payload?.timeRemaining === 'number') {
         callbacksRef.current.onCountdown?.(Math.max(0, payload.timeRemaining));
       }
+      
+      // Handle deposits from round:update
+      if (payload?.deposits && Array.isArray(payload.deposits)) {
+        callbacksRef.current.onDepositsUpdate?.(payload.deposits);
+      }
     });
 
     socket.on('dice:results', (payload: { dice1: number; dice2: number; dice3: number; dice4: number; dice5: number; dice6: number }) => {
@@ -79,6 +100,18 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
       callbacksRef.current.onDiceResults?.(mapped);
       callbacksRef.current.onRolling?.(false);
       // Do not force phase; let backend timer/update drive settlement label.
+    });
+
+    socket.on('deposit:activity', (payload: { player: string; symbol: string; amount: number }) => {
+      if (payload?.player && payload?.symbol && typeof payload?.amount === 'number') {
+        // Normalize symbol to lowercase to ensure uniformity
+        const normalizedSymbol = payload.symbol.toLowerCase() as SymbolKey;
+        callbacksRef.current.onDepositActivity?.({
+          player: payload.player,
+          symbol: normalizedSymbol,
+          amount: payload.amount,
+        });
+      }
     });
 
     socket.on('error', (err: any) => {

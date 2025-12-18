@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { SYMBOLS, marqueeItems, liveActivity, dicePlaceholders } from '@/lib/constants';
+import { SYMBOLS, marqueeItems, dicePlaceholders } from '@/lib/constants';
 import type { SymbolKey } from '@/lib/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useGameSocket } from '@/hooks/useGameSocket';
@@ -38,6 +38,15 @@ export default function Home() {
   const [depositStatus, setDepositStatus] = useState<string | null>(null);
   const [depositSuccess, setDepositSuccess] = useState(false);
   const [lastResults, setLastResults] = useState<SymbolKey[]>([]);
+  const [liveDepositActivities, setLiveDepositActivities] = useState<Array<{ 
+    player: string; 
+    symbol: SymbolKey; 
+    amount: number; 
+    timestamp: number;
+    won?: boolean;
+    payout?: number;
+    matches?: number;
+  }>>([]);
   const [showRollingOverlay, setShowRollingOverlay] = useState(false);
   const showRollingOverlayRef = useRef(false);
   const rollingOverlayTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -131,6 +140,15 @@ export default function Home() {
   }, []);
 
   const handleDeposit = async () => {
+    console.log('[PlaceBet] handleDeposit called', {
+      selectedSymbols,
+      betAmount,
+      phase,
+      roundId,
+      depositBusy,
+      publicKey: publicKey?.toBase58?.(),
+    });
+    
     setDepositStatus(null);
 
     // Step 1: Validate symbol selection FIRST (as user requested)
@@ -363,10 +381,26 @@ export default function Home() {
     handleRollRef.current = handleRoll;
   }, [handleRoll]);
 
+  // Track previous roundId to detect round changes
+  const previousRoundIdRef = useRef<string | null>(null);
+  const currentRoundIdRef = useRef<string | null>(null);
+
   // Wire up backend-driven phases/timer/dice via Socket.io
   const { connected: socketConnected } = useGameSocket({
     onRoundId: (id) => {
-      setRoundId(id);
+      if (id) {
+        const previousRoundId = previousRoundIdRef.current;
+        currentRoundIdRef.current = id;
+        
+        // Don't clear deposits when round changes - keep them visible
+        // They will be updated with results or replaced when new deposits arrive
+        if (previousRoundId !== null && previousRoundId !== id) {
+          console.log('[Deposits] Round changed from', previousRoundId, 'to', id, '- keeping existing deposits');
+        }
+        
+        previousRoundIdRef.current = id;
+        setRoundId(id);
+      }
     },
     onCountdown: (seconds) => {
       setCountdown(seconds);
@@ -510,6 +544,193 @@ export default function Home() {
       setTimeout(() => {
         refreshBalance();
       }, 5000);
+    },
+    onDepositActivity: (activity) => {
+      // This is for real-time new deposits (instant updates when someone deposits)
+      // Add to the feed while preserving order
+      if (phase === 'lobby') {
+        const validSymbols: SymbolKey[] = ['heart', 'spade', 'diamond', 'club', 'crown', 'flag'];
+        if (validSymbols.includes(activity.symbol as SymbolKey)) {
+          setLiveDepositActivities((prev) => {
+            // Check if this deposit already exists (by player + symbol + amount)
+            const exists = prev.some(
+              (item) =>
+                item.player === activity.player &&
+                item.symbol === activity.symbol &&
+                Math.abs(item.amount - activity.amount) < 0.001
+            );
+            if (exists) return prev;
+            
+            // Add new deposit at the beginning (newest first), keep last 20
+            // This maintains chronological order: newest deposits appear first
+            const updated = [
+              { 
+                ...activity, 
+                symbol: activity.symbol as SymbolKey, 
+                timestamp: Date.now(),
+                won: undefined,
+                payout: undefined,
+                matches: undefined,
+              },
+              ...prev,
+            ].slice(0, 20);
+            return updated;
+          });
+        }
+      }
+    },
+    onDepositsUpdate: (deposits) => {
+      // Update deposits from socket responses (round:update, timer:update)
+      // Preserve original order and update win/loss status in place
+      if (!deposits || !Array.isArray(deposits)) {
+        return;
+      }
+
+      const validSymbols: SymbolKey[] = ['heart', 'spade', 'diamond', 'club', 'crown', 'flag'];
+      
+      // Create a map of server deposits by key (player-symbol-amount) for quick lookup
+      const serverDepositsMap = new Map<string, {
+        won?: boolean;
+        payout?: number;
+        matches?: number;
+      }>();
+      
+      const serverDepositsList: Array<{
+        player: string;
+        symbol: SymbolKey;
+        amount: number;
+        won?: boolean;
+        payout?: number;
+        matches?: number;
+      }> = [];
+      
+      deposits
+        .filter((d) => d && d.player && d.symbol && typeof d.amount === 'number')
+        .filter((d) => validSymbols.includes(d.symbol.toLowerCase() as SymbolKey))
+        .forEach((d) => {
+          const key = `${d.player}-${d.symbol.toLowerCase()}-${d.amount.toFixed(9)}`;
+          serverDepositsMap.set(key, {
+            won: d.won,
+            payout: d.payout,
+            matches: d.matches,
+          });
+          
+          serverDepositsList.push({
+            player: d.player,
+            symbol: d.symbol.toLowerCase() as SymbolKey,
+            amount: d.amount,
+            won: d.won,
+            payout: d.payout,
+            matches: d.matches,
+          });
+        });
+
+      const depositsWithResults = serverDepositsList.filter(d => d.won !== undefined);
+      console.log('[Deposits] Received deposits update:', {
+        total: serverDepositsMap.size,
+        withResults: depositsWithResults.length,
+        deposits: depositsWithResults.map(d => ({
+          player: d.player,
+          symbol: d.symbol,
+          amount: d.amount,
+          won: d.won,
+          payout: d.payout,
+        })),
+      });
+      
+      setLiveDepositActivities((prev) => {
+        // Check if we have deposits with results from previous round
+        const prevHasResults = prev.length > 0 && prev.some(item => item.won !== undefined);
+        const serverHasNewDeposits = serverDepositsList.length > 0;
+        const serverHasResults = serverDepositsList.some(d => d.won !== undefined);
+        const serverHasNewDepositsWithoutResults = serverHasNewDeposits && !serverHasResults;
+        
+        // If previous round had results and server sends NEW deposits without results (new round started),
+        // replace with new round deposits
+        if (prevHasResults && serverHasNewDepositsWithoutResults) {
+          // New round started with new deposits (no results yet) - replace old ones
+          console.log('[Deposits] New round deposits received, replacing previous round results');
+          return serverDepositsList.map(d => ({
+            ...d,
+            timestamp: Date.now(),
+          })).slice(0, 20);
+        }
+        
+        // If server sends empty array but we have deposits with results, keep them
+        // This happens when a new round starts but has no deposits yet
+        if (!serverHasNewDeposits && prevHasResults) {
+          console.log('[Deposits] Server sent empty array but we have results, keeping existing deposits');
+          return prev;
+        }
+        
+        // If server sends empty array and we have deposits without results, also keep them
+        // They might get results in the next update
+        if (!serverHasNewDeposits && prev.length > 0) {
+          console.log('[Deposits] Server sent empty array, keeping existing deposits');
+          return prev;
+        }
+        
+        // Update existing deposits in place, preserving original order
+        let hasUpdates = false;
+        const updated = prev.map((item) => {
+          const key = `${item.player}-${item.symbol}-${item.amount.toFixed(9)}`;
+          const serverData = serverDepositsMap.get(key);
+          
+          if (serverData) {
+            // Check if we need to update (win status changed or was undefined)
+            const needsUpdate = 
+              item.won !== serverData.won || 
+              item.payout !== serverData.payout ||
+              item.matches !== serverData.matches;
+            
+            if (needsUpdate) {
+              hasUpdates = true;
+              console.log('[Deposits] Updating deposit with results:', {
+                key,
+                old: { won: item.won, payout: item.payout, matches: item.matches },
+                new: { won: serverData.won, payout: serverData.payout, matches: serverData.matches },
+              });
+              
+              // Update win/loss status from server, but keep original timestamp and order
+              return {
+                ...item,
+                won: serverData.won,
+                payout: serverData.payout,
+                matches: serverData.matches,
+              };
+            }
+          }
+          
+          // Keep existing deposit as-is if not in server response or no update needed
+          return item;
+        });
+
+        // Add any new deposits from server that don't exist yet
+        serverDepositsList.forEach((d) => {
+          const key = `${d.player}-${d.symbol}-${d.amount.toFixed(9)}`;
+          const exists = updated.some(
+            (item) => `${item.player}-${item.symbol}-${item.amount.toFixed(9)}` === key
+          );
+          
+          if (!exists) {
+            // Add new deposit at the beginning (newest first for new deposits)
+            updated.unshift({
+              ...d,
+              timestamp: Date.now(),
+            });
+            hasUpdates = true;
+          }
+        });
+
+        // Only update state if there were actual changes
+        if (hasUpdates || serverHasNewDeposits) {
+          // Limit to 20 most recent
+          return updated.slice(0, 20);
+        }
+        
+        // No changes, return previous state
+        return prev;
+      });
     },
   });
 
@@ -1101,11 +1322,26 @@ export default function Home() {
                 </div>
               </div>
               <button
-                onClick={handleDeposit}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('[PlaceBet] Button clicked', { 
+                    depositBusy, 
+                    phase, 
+                    disabled: depositBusy || phase !== "lobby",
+                    selectedSymbols,
+                    betAmount,
+                  });
+                  if (!depositBusy && phase === "lobby") {
+                    handleDeposit();
+                  } else {
+                    console.warn('[PlaceBet] Button click ignored - disabled state:', { depositBusy, phase });
+                  }
+                }}
                 disabled={depositBusy || phase !== "lobby"}
                 className="rounded-xl border border-[#14F195]/60 bg-[#14F195]/15 px-4 py-3 text-sm font-semibold text-[#14F195] shadow-[0_0_20px_rgba(20,241,149,0.35)] transition hover:border-[#14F195] hover:bg-[#14F195]/25 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Place Bet
+                {depositBusy ? "Processing..." : "Place Bet"}
               </button>
               {depositStatus && (
                 <p
@@ -1285,32 +1521,94 @@ export default function Home() {
                 <p className="text-xs text-slate-400">Matrix feed</p>
               </div>
             </div>
-            <div className="mt-3 space-y-2 text-sm">
-              {liveActivity.map((item, idx) => (
-                <div
-                  key={`${item.player}-${idx}`}
-                  className="flex items-center justify-between rounded-xl border border-white/5 bg-black/30 px-3 py-2 font-mono text-xs text-slate-200"
-                >
-                  <span>{item.player}</span>
-                  <span className="rounded-md bg-white/5 px-2 py-1 text-slate-100">
-                    {item.bet}
-                  </span>
-                  <span
-                    className="font-semibold"
-                    style={{ fontFamily: "var(--font-jetbrains)" }}
-                  >
-                    {item.wager.toFixed(2)} ◎
-                  </span>
-                  <span
-                    className={`text-right ${
-                      item.result === "win" ? "text-[#14F195]" : "text-slate-500"
-                    }`}
-                  >
-                    {item.result === "win" ? "WIN" : "LOSS"}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {liveDepositActivities.length > 0 && (
+              <div className="mt-3 space-y-2 text-sm max-h-[500px] overflow-y-auto">
+                {liveDepositActivities.map((item, idx) => {
+                  const symbolData = SYMBOLS.find((s) => s.key === item.symbol);
+                  const { borderColor } = getSymbolStyle(item.symbol);
+                  
+                  // Determine colors based on win/loss status
+                  const isWin = item.won === true;
+                  const isLoss = item.won === false;
+                  const hasResult = item.won !== undefined;
+                  
+                  // Symbol border color: green for win, red for loss, default for pending
+                  const symbolBorderColor = isWin 
+                    ? "border-[#14F195]/70" 
+                    : isLoss 
+                    ? "border-red-500/50" 
+                    : borderColor;
+                  
+                  // Symbol background: green tint for win, red tint for loss
+                  const symbolBgColor = isWin
+                    ? "bg-[#14F195]/10"
+                    : isLoss
+                    ? "bg-red-500/10"
+                    : "bg-white/5";
+
+                  return (
+                    <motion.div
+                      key={`deposit-${item.timestamp}-${idx}`}
+                      initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.3 }}
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 font-mono text-xs ${
+                        hasResult 
+                          ? isWin 
+                            ? "border-[#14F195]/30 bg-[#14F195]/5" 
+                            : "border-red-500/30 bg-red-500/5"
+                          : "border-white/5 bg-black/30"
+                      } text-slate-200`}
+                    >
+                      <span className="flex-1 truncate">{item.player}</span>
+                      <span className={`flex items-center gap-1.5 rounded-md px-2 py-1 border ${symbolBorderColor} ${symbolBgColor}`}>
+                        {symbolTiles[item.symbol] ? (
+                          <Image
+                            src={symbolTiles[item.symbol]!}
+                            alt={symbolData?.label ?? item.symbol}
+                            width={16}
+                            height={16}
+                            unoptimized
+                            className={`h-4 w-4 rounded-sm ${isWin ? "brightness-110" : isLoss ? "brightness-75 opacity-70" : ""}`}
+                            draggable={false}
+                          />
+                        ) : (
+                          <div className="h-4 w-4 flex items-center justify-center">
+                            {symbolData?.icon && (
+                              <div className={`h-3 w-3 ${isWin ? "text-[#14F195]" : isLoss ? "text-red-400" : ""}`}>
+                                {symbolData.icon}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <span className={`${
+                          isWin ? "text-[#14F195]" : isLoss ? "text-red-400" : "text-slate-100"
+                        }`}>
+                          {symbolData?.label ?? item.symbol}
+                        </span>
+                      </span>
+                      {hasResult && item.payout !== undefined ? (
+                        <span
+                          className={`font-semibold ${
+                            isWin ? "text-[#14F195]" : "text-slate-500"
+                          }`}
+                          style={{ fontFamily: "var(--font-jetbrains)" }}
+                        >
+                          {isWin ? `+${item.payout.toFixed(2)}` : "LOST"} ◎
+                        </span>
+                      ) : (
+                        <span
+                          className="font-semibold text-[#14F195]"
+                          style={{ fontFamily: "var(--font-jetbrains)" }}
+                        >
+                          {item.amount.toFixed(2)} ◎
+                        </span>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#0f172a] via-[#0b1120] to-[#0f172a] p-5 shadow-xl backdrop-blur-xl">
