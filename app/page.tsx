@@ -56,6 +56,8 @@ export default function Home() {
   const pendingDiceResultsRef = useRef<SymbolKey[] | null>(null);
   const pendingDiceResultsTimerRef = useRef<NodeJS.Timeout | null>(null);
   const MIN_ROLL_MS = 1200;
+  // Mirror backend payout math so Live Activity can update immediately on result.
+  const HOUSE_GAS_FEE_SOL = 0.001;
   // Once we receive dice results for a round, keep UI in "show" until the next lobby starts.
   // This prevents backend `timer:update` ticks still in phase=rolling from flipping the label back to "Rolling...".
   const lockShowUntilLobbyRef = useRef(false);
@@ -392,10 +394,10 @@ export default function Home() {
         const previousRoundId = previousRoundIdRef.current;
         currentRoundIdRef.current = id;
         
-        // Don't clear deposits when round changes - keep them visible
-        // They will be updated with results or replaced when new deposits arrive
+        // New round started: clear live activity so the feed only shows this round.
         if (previousRoundId !== null && previousRoundId !== id) {
-          console.log('[Deposits] Round changed from', previousRoundId, 'to', id, '- keeping existing deposits');
+          console.log('[Deposits] Round changed from', previousRoundId, 'to', id, '- clearing live activity');
+          setLiveDepositActivities([]);
         }
         
         previousRoundIdRef.current = id;
@@ -500,6 +502,35 @@ export default function Home() {
 
         // Apply dice results and snap to matching faces
         setDiceResults(final);
+
+        // Update Live Activity rows in-place with win/lose + payout for this round.
+        // This makes the feed deterministic even if backend deposit updates are delayed.
+        const counts = final.reduce<Record<SymbolKey, number>>((acc, sym) => {
+          acc[sym] = (acc[sym] || 0) + 1;
+          return acc;
+        }, {} as Record<SymbolKey, number>);
+
+        setLiveDepositActivities((prev) =>
+          prev.map((item) => {
+            const matches = counts[item.symbol] || 0;
+            if (matches <= 0) {
+              return { ...item, matches: 0, won: false, payout: 0 };
+            }
+
+            const stake = item.amount;
+            const payout =
+              matches === 1
+                ? Math.max(0, stake - HOUSE_GAS_FEE_SOL)
+                : Math.max(0, (matches + 1) * stake - HOUSE_GAS_FEE_SOL);
+
+            return {
+              ...item,
+              matches,
+              won: true,
+              payout,
+            };
+          }),
+        );
 
         if (diceMeshesRef.current.length > 0 && final.length === diceMeshesRef.current.length) {
           const symbolOrder: SymbolKey[] = ["heart", "spade", "diamond", "club", "crown", "flag"];
@@ -1590,11 +1621,13 @@ export default function Home() {
                       {hasResult && item.payout !== undefined ? (
                         <span
                           className={`font-semibold ${
-                            isWin ? "text-[#14F195]" : "text-slate-500"
+                            isWin ? "text-[#14F195]" : "text-red-400"
                           }`}
                           style={{ fontFamily: "var(--font-jetbrains)" }}
                         >
-                          {isWin ? `+${item.payout.toFixed(2)}` : "LOST"} ◎
+                          {isWin
+                            ? `WIN ${item.payout.toFixed(2)}`
+                            : `LOSE ${item.amount.toFixed(2)}`} ◎
                         </span>
                       ) : (
                         <span
