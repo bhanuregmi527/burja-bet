@@ -103,6 +103,7 @@ export interface PlaceBetResponse {
   success: boolean;
   betId?: string;
   message: string;
+  points?: number;
 }
 
 /**

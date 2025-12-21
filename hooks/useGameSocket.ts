@@ -27,6 +27,7 @@ export interface GameSocketCallbacks {
   onRoundId?: (roundId: string) => void;
   onDepositActivity?: (activity: DepositActivity) => void;
   onDepositsUpdate?: (deposits: DepositActivity[]) => void;
+  onPointsUpdate?: (payload: { userId: string; points: number }) => void;
 }
 
 export function useGameSocket(callbacks: GameSocketCallbacks) {
@@ -111,6 +112,12 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
           symbol: normalizedSymbol,
           amount: payload.amount,
         });
+      }
+    });
+
+    socket.on('points:update', (payload: { userId: string; points: number }) => {
+      if (payload?.userId && typeof payload?.points === 'number') {
+        callbacksRef.current.onPointsUpdate?.(payload);
       }
     });
 

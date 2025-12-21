@@ -10,6 +10,7 @@ import {
   BadgeCheck,
   Bolt,
   Wallet,
+  Dices,
 } from "lucide-react";
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
@@ -37,6 +38,7 @@ export default function Home() {
   const [depositBusy, setDepositBusy] = useState(false);
   const [depositStatus, setDepositStatus] = useState<string | null>(null);
   const [depositSuccess, setDepositSuccess] = useState(false);
+  const [userPoints, setUserPoints] = useState<number>(0);
   const [lastResults, setLastResults] = useState<SymbolKey[]>([]);
   const [liveDepositActivities, setLiveDepositActivities] = useState<Array<{ 
     player: string; 
@@ -763,6 +765,12 @@ export default function Home() {
         return prev;
       });
     },
+    onPointsUpdate: (payload) => {
+      // Only update points if it's for the current user
+      if (user?.id === payload.userId) {
+        setUserPoints(payload.points);
+      }
+    },
   });
 
   const handleQuickAmount = (val: number) => setBetAmount(val);
@@ -1225,14 +1233,6 @@ export default function Home() {
               <span className="h-2 w-2 rounded-full bg-[#14F195]" />
               <span className="font-semibold text-white">{countdown}s</span>
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wide">
-              <span
-                className={`h-2 w-2 rounded-full ${socketConnected ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse`}
-              />
-              <span className="font-semibold text-slate-200">
-                {socketConnected ? 'Live feed' : 'Reconnecting...'}
-              </span>
-            </div>
             {!soundEnabled && (
               <button
                 onClick={enableSound}
@@ -1245,6 +1245,13 @@ export default function Home() {
               <span className="text-slate-400">Balance</span>
               <span className="font-semibold text-white [font-variant-numeric:tabular-nums]">
                 {balance !== null ? balance.toFixed(2) : "--"} ◎
+              </span>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1">
+              <Dices className="h-4 w-4 text-amber-500" />
+              <span className="text-amber-600">Burja Points</span>
+              <span className="font-semibold text-amber-300 [font-variant-numeric:tabular-nums]">
+                {userPoints}
               </span>
             </div>
             <WalletButton />
