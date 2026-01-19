@@ -191,6 +191,7 @@ export default function Home() {
     }
 
     // Step 6: Validate betting phase
+    console.log('[PlaceBet] Phase check:', { phase, isLobby: phase === "lobby" });
     if (phase !== "lobby") {
       setDepositStatus("Betting is closed. Wait for the next round.");
       return;
@@ -216,6 +217,7 @@ export default function Home() {
         roundId,
         wallet: publicKey?.toBase58?.(),
         phase,
+        countdown,
       });
       setDepositStatus("Approve deposit in Phantom...");
       try {
@@ -454,7 +456,6 @@ export default function Home() {
         if (nextPhase !== "lobby") return;
         lockShowUntilLobbyRef.current = false;
       }
-
       setPhaseState(nextPhase);
 
       if (nextPhase === "rolling") {

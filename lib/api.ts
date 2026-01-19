@@ -1,12 +1,16 @@
 // API utility functions for authentication and gameplay
 
+const normalizeBaseUrl = (url: string): string => url.replace(/\/+$/, '');
+
 // Gateway (HTTP REST for /game/*)
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3004';
+const API_BASE_URL = normalizeBaseUrl(
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.burjabet.com'
+);
 
 // Auth-service (HTTP REST for /login, /user/update)
-const AUTH_BASE_URL =
-  process.env.NEXT_PUBLIC_AUTH_BASE_URL || 'http://localhost:3001';
+const AUTH_BASE_URL = normalizeBaseUrl(
+  process.env.NEXT_PUBLIC_AUTH_BASE_URL || 'https://api.burjabet.com'
+);
 
 export interface RequestHeader {
   RequestId?: string;
@@ -128,7 +132,7 @@ export const login = async (
   );
 
   // Login goes directly to auth-service (gateway should not proxy login)
-  const response = await fetch(`${AUTH_BASE_URL}/login`, {
+  const response = await fetch(`${AUTH_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

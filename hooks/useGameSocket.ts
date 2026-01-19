@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { GamePhase, SymbolKey } from '@/lib/types';
 
+const normalizeBaseUrl = (url: string): string => url.replace(/\/+$/, '');
+
 const SYMBOL_ORDER: SymbolKey[] = ['heart', 'spade', 'diamond', 'club', 'crown', 'flag'];
 
 const phaseMap: Record<number, GamePhase> = {
@@ -40,7 +42,12 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
   }, [callbacks]);
 
   const wsUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3004',
+    () =>
+      normalizeBaseUrl(
+        process.env.NEXT_PUBLIC_WS_URL ||
+          process.env.NEXT_PUBLIC_API_BASE_URL ||
+          'https://api.burjabet.com'
+      ),
     []
   );
 
@@ -69,6 +76,11 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
       callbacksRef.current.onRolling?.(phase === 'rolling');
       callbacksRef.current.onCountdown?.(Math.max(0, payload?.timeRemaining ?? 0));
       
+      // Debug: log the full timer:update payload
+      if (payload?.deposits) {
+        console.log('[Socket] timer:update deposits:', payload.deposits);
+      }
+      
       // Handle deposits from timer:update
       if (payload?.deposits && Array.isArray(payload.deposits)) {
         callbacksRef.current.onDepositsUpdate?.(payload.deposits);
@@ -88,6 +100,11 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
         callbacksRef.current.onCountdown?.(Math.max(0, payload.timeRemaining));
       }
       
+      // Debug: log the full round:update payload
+      if (payload?.deposits) {
+        console.log('[Socket] round:update deposits:', payload.deposits);
+      }
+      
       // Handle deposits from round:update
       if (payload?.deposits && Array.isArray(payload.deposits)) {
         callbacksRef.current.onDepositsUpdate?.(payload.deposits);
@@ -104,6 +121,7 @@ export function useGameSocket(callbacks: GameSocketCallbacks) {
     });
 
     socket.on('deposit:activity', (payload: { player: string; symbol: string; amount: number }) => {
+      console.log('[Socket] deposit:activity event received:', payload);
       if (payload?.player && payload?.symbol && typeof payload?.amount === 'number') {
         // Normalize symbol to lowercase to ensure uniformity
         const normalizedSymbol = payload.symbol.toLowerCase() as SymbolKey;

@@ -20,6 +20,15 @@ export const metadata: Metadata = {
   title: "BurjaBet | Langur Burja on Solana",
   description:
     "A degen-first Solana Langur Burja (Jhandi Munda) experience with provably fair rolls, neon aesthetics, and liquidity for the house.",
+  icons: {
+    icon: [
+      {
+        url: "/favicon.svg",
+        type: "image/svg+xml",
+      },
+    ],
+    apple: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({
