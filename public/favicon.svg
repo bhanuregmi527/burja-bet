@@ -6,5 +6,5 @@
     </linearGradient>
   </defs>
   <rect width="180" height="180" fill="url(#grad1)" rx="45"/>
-  <text x="90" y="130" font-size="100" text-anchor="middle" dominant-baseline="middle">🎲</text>
+  <text x="90" y="95" font-size="110" text-anchor="middle" dominant-baseline="central" font-family="system-ui">🎲</text>
 </svg>
