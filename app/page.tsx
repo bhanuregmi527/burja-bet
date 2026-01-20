@@ -806,6 +806,8 @@ export default function Home() {
     const container = threeRef.current;
     if (!container) return;
 
+    const isSmallLayout = container.clientWidth < 640;
+
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
       50,
@@ -813,8 +815,17 @@ export default function Home() {
       0.1,
       100,
     );
-    camera.position.set(0, 4, 20);
-    camera.lookAt(0, 0, 0);
+
+    const applyCameraPreset = (w: number, h: number) => {
+      const isSmall = w < 640;
+      camera.fov = isSmall ? 72 : 50;
+      camera.aspect = w / h;
+      camera.position.set(0, isSmall ? 5.5 : 4, isSmall ? 34 : 20);
+      camera.lookAt(0, 0, 0);
+      camera.updateProjectionMatrix();
+    };
+
+    applyCameraPreset(container.clientWidth, container.clientHeight);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -974,10 +985,13 @@ export default function Home() {
     const diceMeshes: any[] = [];
     const diceVelocities: any[] = [];
     
-    // 2 rows x 3 columns = 6 dice (spacing increased for 4x larger dice)
+    // 2 rows x 3 columns = 6 dice
+    // On small screens we tighten spacing slightly to avoid edge clipping.
+    const xSpacing = isSmallLayout ? 8 : 10;
+    const ySpacing = isSmallLayout ? 4.2 : 4.8;
     const gridPositions = [
-      [-10, 4.8, 0], [0, 4.8, 0], [10, 4.8, 0], // Top row
-      [-10, -4.8, 0], [0, -4.8, 0], [10, -4.8, 0], // Bottom row
+      [-xSpacing, ySpacing, 0], [0, ySpacing, 0], [xSpacing, ySpacing, 0],
+      [-xSpacing, -ySpacing, 0], [0, -ySpacing, 0], [xSpacing, -ySpacing, 0],
     ];
 
     gridPositions.forEach((pos, dieIndex) => {
@@ -1166,8 +1180,7 @@ export default function Home() {
       if (!rendererRef.current || !cameraRef.current) return;
       const { clientWidth, clientHeight } = container;
       rendererRef.current.setSize(clientWidth, clientHeight);
-      cameraRef.current.aspect = clientWidth / clientHeight;
-      cameraRef.current.updateProjectionMatrix();
+      applyCameraPreset(clientWidth, clientHeight);
     };
     window.addEventListener("resize", onResize);
 
@@ -1230,7 +1243,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3 text-xs text-slate-200">
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
+            <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 sm:flex">
               <span className="h-2 w-2 rounded-full bg-[#14F195]" />
               <span className="font-semibold text-white">{countdown}s</span>
             </div>
@@ -1248,7 +1261,7 @@ export default function Home() {
                 {balance !== null ? balance.toFixed(2) : "--"} ◎
               </span>
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1">
+            <div className="hidden items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 sm:flex">
               <Dices className="h-4 w-4 text-amber-500" />
               <span className="text-amber-600">Burja Points</span>
               <span className="font-semibold text-amber-300 [font-variant-numeric:tabular-nums]">
@@ -1263,7 +1276,7 @@ export default function Home() {
       <main className="mx-auto grid max-w-screen-2xl gap-6 px-4 pb-10 pt-0 lg:grid-cols-[3.5fr_1.2fr]">
         <section className="space-y-6">
           <div className="grid gap-4 rounded-2xl border border-white/10 bg-[#0b1020] p-6 shadow-2xl backdrop-blur-xl lg:grid-cols-[1fr_3.5fr]">
-            <div className="flex flex-col gap-4 rounded-xl border border-white/10 bg-black/30 p-4 shadow-inner">
+            <div className="order-2 flex flex-col gap-4 rounded-xl border border-white/10 bg-black/30 p-4 shadow-inner lg:order-1">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-[#14F195]">
                   Lobby & Deposit
@@ -1399,7 +1412,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0f172a] via-[#0b1120] to-[#0f172a] p-7 shadow-2xl grid-overlay">
+            <div className="order-1 relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0f172a] via-[#0b1120] to-[#0f172a] p-7 shadow-2xl grid-overlay lg:order-2">
               <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_20%_30%,rgba(20,241,149,0.15),transparent_25%),radial-gradient(circle_at_80%_70%,rgba(153,69,255,0.15),transparent_25%),linear-gradient(180deg,rgba(255,255,255,0.06),transparent)]" />
               <div className="relative flex items-center justify-between text-sm text-slate-300">
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
@@ -1409,7 +1422,7 @@ export default function Home() {
                   {countdownLabel}
                 </span>
               </div>
-              <div className="relative mt-4 h-[28rem] overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-black/40 via-black/20 to-black/60">
+              <div className="relative mt-4 h-[20rem] overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-black/40 via-black/20 to-black/60 sm:h-[28rem]">
                 <div
                   ref={threeRef}
                   className={`absolute inset-0 pointer-events-none transition-all duration-300 ease-out ${
