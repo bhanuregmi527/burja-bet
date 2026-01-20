@@ -818,9 +818,12 @@ export default function Home() {
 
     const applyCameraPreset = (w: number, h: number) => {
       const isSmall = w < 640;
-      camera.fov = isSmall ? 72 : 50;
+      // Mobile: tighter framing (less empty space around dice).
+      camera.fov = isSmall ? 64 : 50;
       camera.aspect = w / h;
-      camera.position.set(0, isSmall ? 5.5 : 4, isSmall ? 34 : 20);
+      // Bring camera a bit closer so dice fill more of the stage (less empty gap).
+      // Desktop needs more distance now that dice are larger.
+      camera.position.set(0, isSmall ? 4.8 : 4.2, isSmall ? 23.5 : 22);
       camera.lookAt(0, 0, 0);
       camera.updateProjectionMatrix();
     };
@@ -932,8 +935,9 @@ export default function Home() {
       return geo;
     };
 
-    const diceSize = 4.8; // 4x bigger
-    const diceRadius = 0.62; // smoother, more premium edge rounding
+    // Increase dice size by 25%.
+    const diceSize = 6.0;
+    const diceRadius = 0.775; // keep edge rounding proportional
 
     // Create materials for each face with symbol textures
     // BoxGeometry face order: right, left, top, bottom, front, back
@@ -986,9 +990,9 @@ export default function Home() {
     const diceVelocities: any[] = [];
     
     // 2 rows x 3 columns = 6 dice
-    // On small screens we tighten spacing slightly to avoid edge clipping.
-    const xSpacing = isSmallLayout ? 8 : 10;
-    const ySpacing = isSmallLayout ? 4.2 : 4.8;
+    // Slightly increase spacing between dice (5–10%) while keeping mobile framing tight.
+    const xSpacing = isSmallLayout ? 7.9 : 9.1;
+    const ySpacing = isSmallLayout ? 4.15 : 4.44;
     const gridPositions = [
       [-xSpacing, ySpacing, 0], [0, ySpacing, 0], [xSpacing, ySpacing, 0],
       [-xSpacing, -ySpacing, 0], [0, -ySpacing, 0], [xSpacing, -ySpacing, 0],
@@ -1212,7 +1216,7 @@ export default function Home() {
         </div>
       )}
       <header className="sticky top-0 z-30 border-b border-white/5 bg-[#0b1120]/80 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
-        <div className="px-4 py-2">
+        <div className="hidden px-4 py-2 sm:block">
           <div className="overflow-hidden rounded-full border border-white/10 bg-white/5 px-4 py-1.5">
             <motion.div
               className="flex gap-6 whitespace-nowrap text-xs text-slate-200"
@@ -1255,12 +1259,6 @@ export default function Home() {
                 Enable sound
               </button>
             )}
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
-              <span className="text-slate-400">Balance</span>
-              <span className="font-semibold text-white [font-variant-numeric:tabular-nums]">
-                {balance !== null ? balance.toFixed(2) : "--"} ◎
-              </span>
-            </div>
             <div className="hidden items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 sm:flex">
               <Dices className="h-4 w-4 text-amber-500" />
               <span className="text-amber-600">Burja Points</span>
@@ -1275,29 +1273,29 @@ export default function Home() {
 
       <main className="mx-auto grid max-w-screen-2xl gap-6 px-4 pb-10 pt-0 lg:grid-cols-[3.5fr_1.2fr]">
         <section className="space-y-6">
-          <div className="grid gap-4 rounded-2xl border border-white/10 bg-[#0b1020] p-6 shadow-2xl backdrop-blur-xl lg:grid-cols-[1fr_3.5fr]">
-            <div className="order-2 flex flex-col gap-4 rounded-xl border border-white/10 bg-black/30 p-4 shadow-inner lg:order-1">
+          <div className="grid gap-4 rounded-2xl border border-white/10 bg-[#0b1020] p-4 shadow-2xl backdrop-blur-xl sm:p-6 lg:grid-cols-[1fr_3.5fr]">
+            <div className="order-2 flex flex-col gap-3 rounded-xl border border-white/10 bg-black/30 p-3 shadow-inner sm:gap-4 sm:p-4 lg:order-1">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-[#14F195]">
                   Lobby & Deposit
                 </p>
-                <p className="text-xl font-semibold text-white">
+                <p className="text-lg font-semibold text-white sm:text-xl">
                   Fund your roll before countdown ends
                 </p>
-                <p className="text-sm text-slate-300">
+                <p className="hidden text-sm text-slate-300 sm:block">
                   20s lobby window, then dice roll automatically with live reveal.
                 </p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+              <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-sm text-slate-200 sm:px-4 sm:py-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs uppercase tracking-[0.15em] text-slate-300">
                     Select Symbols
                   </span>
-                  <span className="text-[11px] text-slate-400">
+                  <span className="hidden text-[11px] text-slate-400 sm:inline">
                     Multi-select allowed
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1 sm:gap-2">
                   {SYMBOLS.map((symbol) => {
                     const active = selectedSymbols.includes(symbol.key);
                     const { iconColor, borderColor } = getSymbolStyle(symbol.key);
@@ -1306,7 +1304,7 @@ export default function Home() {
                         key={`top-select-${symbol.key}`}
                         onClick={() => toggleSymbol(symbol.key)}
                         aria-label={symbol.label}
-                        className={`relative flex items-center justify-center rounded-lg border p-2 backdrop-blur-sm transition will-change-transform ${
+                        className={`relative flex items-center justify-center rounded-lg border p-1 backdrop-blur-sm transition will-change-transform sm:p-2 ${
                           active
                             ? "border-[#14F195] bg-[#14F195]/10 ring-2 ring-[#14F195]/70 shadow-[0_0_24px_rgba(20,241,149,0.35)] scale-[1.02]"
                             : `${borderColor} bg-white/10 hover:bg-white/15 hover:scale-[1.01]`
@@ -1325,12 +1323,12 @@ export default function Home() {
                             width={40}
                             height={40}
                             unoptimized
-                            className={`h-10 w-10 rounded-md shadow-sm transition ${active ? "brightness-110" : "brightness-95 opacity-95"}`}
+                            className={`h-8 w-8 rounded-md shadow-sm transition sm:h-10 sm:w-10 ${active ? "brightness-110" : "brightness-95 opacity-95"}`}
                             draggable={false}
                           />
                         ) : (
                           <div className={iconColor}>
-                            <div className={`h-5 w-5 ${iconColor}`}>{symbol.icon}</div>
+                            <div className={`h-4 w-4 ${iconColor} sm:h-5 sm:w-5`}>{symbol.icon}</div>
                           </div>
                         )}
                       </button>
@@ -1338,15 +1336,15 @@ export default function Home() {
                   })}
                 </div>
               </div>
-              <div className="rounded-xl border border-white/10 bg-black/40 p-4">
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 sm:p-4">
                 <div className="flex items-center justify-between text-xs text-slate-300">
                   <span>Bet Amount</span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-wide">
+                  <span className="hidden rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-wide sm:inline">
                     Quick set
                   </span>
                 </div>
                 <div className="mt-2 flex items-center gap-2">
-                  <div className="flex flex-1 items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3">
+                  <div className="flex flex-1 items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 sm:py-3">
                     <div className="rounded-md bg-[#14F195]/10 px-2 py-1 text-xs font-semibold text-[#14F195]">
                       SOL
                     </div>
@@ -1356,17 +1354,17 @@ export default function Home() {
                       min={0}
                       step={0.1}
                       onChange={(e) => setBetAmount(Number(e.target.value))}
-                      className="w-full bg-transparent text-lg font-semibold outline-none [font-variant-numeric:tabular-nums]"
+                      className="w-full bg-transparent text-base font-semibold outline-none [font-variant-numeric:tabular-nums] sm:text-lg"
                       style={{ fontFamily: "var(--font-jetbrains)" }}
                     />
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-4 gap-2">
+                <div className="mt-2.5 grid grid-cols-4 gap-1 sm:gap-2">
                   {[0.1, 0.5, 1, 5].map((v) => (
                     <button
                       key={v}
                       onClick={() => setBetAmount(v)}
-                      className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs font-semibold text-slate-200 transition hover:border-[#14F195]/50 hover:text-white"
+                      className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:border-[#14F195]/50 hover:text-white sm:py-2"
                     >
                       {v} ◎
                     </button>
@@ -1391,7 +1389,7 @@ export default function Home() {
                   }
                 }}
                 disabled={depositBusy || phase !== "lobby"}
-                className="rounded-xl border border-[#14F195]/60 bg-[#14F195]/15 px-4 py-3 text-sm font-semibold text-[#14F195] shadow-[0_0_20px_rgba(20,241,149,0.35)] transition hover:border-[#14F195] hover:bg-[#14F195]/25 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="rounded-xl border border-[#14F195]/60 bg-[#14F195]/15 px-4 py-2.5 text-sm font-semibold text-[#14F195] shadow-[0_0_20px_rgba(20,241,149,0.35)] transition hover:border-[#14F195] hover:bg-[#14F195]/25 disabled:opacity-60 disabled:cursor-not-allowed sm:py-3"
               >
                 {depositBusy ? "Processing..." : "Place Bet"}
               </button>
@@ -1406,13 +1404,13 @@ export default function Home() {
                   {depositStatus}
                 </p>
               )}
-              <div className="flex items-center gap-2 text-xs text-slate-400">
+              <div className="hidden items-center gap-2 text-xs text-slate-400 sm:flex">
                 <span className="h-2 w-2 rounded-full bg-[#14F195]" />
                 Lobby timer runs for 20s, then rolls automatically.
               </div>
             </div>
 
-            <div className="order-1 relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0f172a] via-[#0b1120] to-[#0f172a] p-7 shadow-2xl grid-overlay lg:order-2">
+            <div className="order-1 relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0f172a] via-[#0b1120] to-[#0f172a] p-4 shadow-2xl grid-overlay sm:p-7 lg:order-2">
               <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_20%_30%,rgba(20,241,149,0.15),transparent_25%),radial-gradient(circle_at_80%_70%,rgba(153,69,255,0.15),transparent_25%),linear-gradient(180deg,rgba(255,255,255,0.06),transparent)]" />
               <div className="relative flex items-center justify-between text-sm text-slate-300">
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
@@ -1422,7 +1420,7 @@ export default function Home() {
                   {countdownLabel}
                 </span>
               </div>
-              <div className="relative mt-4 h-[20rem] overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-black/40 via-black/20 to-black/60 sm:h-[28rem]">
+              <div className="relative mt-4 h-[16rem] overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-black/40 via-black/20 to-black/60 sm:h-[28rem]">
                 <div
                   ref={threeRef}
                   className={`absolute inset-0 pointer-events-none transition-all duration-300 ease-out ${
@@ -1471,10 +1469,10 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -6, scale: 0.98 }}
                 transition={{ duration: 0.25, ease: "easeOut" }}
-                className="mt-4 space-y-3 rounded-xl border-2 border-blue-500/50 px-4 py-3"
+                className="mt-3 space-y-2 rounded-xl border-2 border-blue-500/50 px-3 py-2 sm:mt-4 sm:space-y-3 sm:px-4 sm:py-3"
               >
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-lg bg-blue-700/50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white border border-blue-400/30">
+                  <span className="rounded-lg bg-blue-700/50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white border border-blue-400/30 sm:px-3 sm:py-1.5 sm:text-xs">
                     {phase === "rolling" ? "Rolling" : "Last Result"}
                   </span>
                   {(lastResults.length > 0 ? lastResults : diceResults).map((symbol, idx) => {
@@ -1487,7 +1485,7 @@ export default function Home() {
                         initial={{ opacity: 0, y: 4 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.2, delay: idx * 0.05 }}
-                        className={`flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 border ${borderColor} backdrop-blur-sm`}
+                        className={`flex items-center gap-2 rounded-lg bg-white/10 px-2.5 py-1 border ${borderColor} backdrop-blur-sm sm:px-3 sm:py-1.5`}
                       >
                         {symbolTiles[symbol] ? (
                           <Image
@@ -1496,19 +1494,19 @@ export default function Home() {
                             width={20}
                             height={20}
                             unoptimized
-                            className="h-5 w-5 rounded-sm"
+                            className="h-4 w-4 rounded-sm sm:h-5 sm:w-5"
                             draggable={false}
                           />
                         ) : (
                           <div className={iconColor}>
                             {symbolData?.icon && (
-                              <div className={`h-5 w-5 ${iconColor}`}>
+                              <div className={`h-4 w-4 ${iconColor} sm:h-5 sm:w-5`}>
                                 {symbolData.icon}
                               </div>
                             )}
                           </div>
                         )}
-                        <span className={`text-sm font-semibold ${textColor}`}>
+                        <span className={`text-xs font-semibold ${textColor} sm:text-sm`}>
                           {symbolData?.label}
                         </span>
                       </motion.div>
@@ -1518,9 +1516,6 @@ export default function Home() {
                     <span className="text-xs text-slate-400">Waiting for first roll...</span>
                   )}
                 </div>
-                {phase === "show" && (
-                  <div className="text-xs text-slate-300">Next round starting soon. Wins are paid automatically.</div>
-                )}
               </motion.div>
             </div>
           </div>
