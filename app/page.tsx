@@ -31,7 +31,7 @@ import { placeBet } from '@/lib/api';
 
 export default function Home() {
   const { setVisible } = useWalletModal();
-  const { publicKey, signTransaction, signMessage } = useWallet();
+  const { publicKey, connected, signTransaction, signMessage } = useWallet();
   const { user, isLoggingIn, accessToken, loginWithWallet } = useAuth();
   const { deposit } = useDeposit();
   const { balance, refreshBalance } = useSolBalance();
@@ -155,28 +155,29 @@ export default function Home() {
     
     setDepositStatus(null);
 
-    // Step 1: Validate symbol selection FIRST (as user requested)
-    if (!selectedSymbols || selectedSymbols.length === 0) {
-      setDepositStatus("Select a symbol before placing bet.");
-      return;
-    }
-
-    // Step 2: Validate bet amount
-    if (!betAmount || betAmount <= 0) {
-      setDepositStatus("Enter an amount greater than 0.");
-      return;
-    }
-
-    // Step 3: Check wallet connection
-    if (!publicKey) {
+    // Step 1: Check wallet connection FIRST (so Phantom opens immediately)
+    if (!connected || !publicKey) {
       setDepositStatus("Connect your wallet to place bet.");
       setVisible(true);
       return;
     }
 
     if (!signTransaction) {
-      setDepositStatus("Wallet not ready for transactions. Please reconnect your wallet.");
-      setVisible(true);
+      // Wallet is connected but the adapter doesn't expose transaction signing yet.
+      // Don't pop the wallet modal again (it looks like a forced reconnect).
+      setDepositStatus("Wallet is connected but not ready for transactions. Open Phantom and reconnect (or refresh this page).");
+      return;
+    }
+
+    // Step 2: Validate symbol selection
+    if (!selectedSymbols || selectedSymbols.length === 0) {
+      setDepositStatus("Select a symbol before placing bet.");
+      return;
+    }
+
+    // Step 3: Validate bet amount
+    if (!betAmount || betAmount <= 0) {
+      setDepositStatus("Enter an amount greater than 0.");
       return;
     }
 
@@ -223,6 +224,14 @@ export default function Home() {
       try {
         const depositSig = await deposit(totalDepositAmount, memo);
         console.log("[PlaceBet] deposit confirmed", { depositSig, totalDepositAmount });
+
+        // Show success immediately after the on-chain tx is confirmed at a fast commitment.
+        // Backend crediting / bet placement can still take a moment.
+        setDepositSuccess(true);
+        setTimeout(() => setDepositSuccess(false), 2500);
+
+        // Update balance asap after deposit.
+        refreshBalance();
       } catch (error: any) {
         const message = error instanceof Error ? error.message : String(error);
         console.error("[PlaceBet] deposit failed", { message, error });
@@ -230,7 +239,6 @@ export default function Home() {
           setDepositStatus("Transaction cancelled. Please try again.");
         } else {
           setDepositStatus(`Deposit failed: ${message}`);
-          setVisible(true);
         }
         setDepositBusy(false);
         return;
@@ -240,8 +248,9 @@ export default function Home() {
       let currentAccessToken = accessToken;
       if (!currentAccessToken) {
         if (!signMessage) {
-          setDepositStatus("Wallet not ready for sign-in. Please reconnect your wallet.");
-          setVisible(true);
+          // Don't trigger the wallet modal here; the wallet is already connected.
+          // If signMessage isn't available (wallet doesn't support it), the user must switch wallet.
+          setDepositStatus("Wallet can't sign messages for login. Switch to Phantom (or another wallet that supports message signing).");
           setDepositBusy(false);
           return;
         }
@@ -270,7 +279,7 @@ export default function Home() {
       // says insufficient balance OR "no deposit for current round" (round deposit ledger not updated yet).
       const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const placeBetWithRetry = async (symbol: string) => {
-        const maxAttempts = 10;
+        const maxAttempts = 6;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           console.log("[PlaceBet] calling /game/bet", {
             symbol,
@@ -306,7 +315,7 @@ export default function Home() {
                 setDepositStatus(
                   `Waiting for deposit credit... (${attempt}/${maxAttempts - 1})`,
                 );
-                await sleep(1000);
+                await sleep(400);
                 continue;
               }
 
@@ -335,7 +344,7 @@ export default function Home() {
               setDepositStatus(
                 `Waiting for deposit credit... (${attempt}/${maxAttempts - 1})`,
               );
-              await sleep(1000);
+              await sleep(400);
               continue;
             }
             throw e;
@@ -352,11 +361,7 @@ export default function Home() {
         setDepositStatus(`Bet placed on ${successCount}/${selectedSymbols.length} symbol(s). Some may have failed.`);
       }
 
-      setDepositSuccess(true);
-      setTimeout(() => setDepositSuccess(false), 2500);
-      
-      // Refresh balance after deposits
-      refreshBalance();
+      // Balance was already refreshed right after deposit.
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
       setDepositStatus(`Bet failed: ${message}`);
@@ -1391,7 +1396,11 @@ export default function Home() {
                 disabled={depositBusy || phase !== "lobby"}
                 className="rounded-xl border border-[#14F195]/60 bg-[#14F195]/15 px-4 py-2.5 text-sm font-semibold text-[#14F195] shadow-[0_0_20px_rgba(20,241,149,0.35)] transition hover:border-[#14F195] hover:bg-[#14F195]/25 disabled:opacity-60 disabled:cursor-not-allowed sm:py-3"
               >
-                {depositBusy ? "Processing..." : "Place Bet"}
+                {depositBusy
+                  ? depositStatus?.toLowerCase().includes("phantom")
+                    ? "Approve in Phantom..."
+                    : "Processing..."
+                  : "Place Bet"}
               </button>
               {depositStatus && (
                 <p
