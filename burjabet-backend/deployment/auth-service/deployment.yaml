@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: burja
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+      - name: auth-service
+        image: bhanuburja.azurecr.io/burja-backend/auth-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3001
+          name: http
+        - containerPort: 50051
+          name: grpc
+        envFrom:
+        - configMapRef:
+            name: burja-config
+        - secretRef:
+            name: burja-secrets
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 750m
+            memory: 512Mi
+        livenessProbe:
+          tcpSocket:
+            port: 3001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 3001
+          initialDelaySeconds: 10
+          periodSeconds: 5

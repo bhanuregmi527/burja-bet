@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package game;
+
+service GameEngineService {
+  rpc PrepareBet (PlaceBetRequest) returns (PlaceBetResponse);
+  rpc PlaceBet (PlaceBetRequest) returns (PlaceBetResponse);
+  rpc GetCurrentRound (GetCurrentRoundRequest) returns (GetCurrentRoundResponse);
+}
+
+message PlaceBetRequest {
+  string userId = 1;
+  string amount = 2;
+  string symbol = 3;
+}
+
+message PlaceBetResponse {
+  bool success = 1;
+  string betId = 2;
+  string message = 3;
+  int64 points = 4;
+}
+
+message GetCurrentRoundRequest {
+  // Empty
+}
+
+message GetCurrentRoundResponse {
+  string roundId = 1;
+  string status = 2;
+  int32 phase = 3; // 1: Betting, 2: Rolling, 3: Settlement
+  int32 timeRemaining = 4; // seconds
+  string result = 5; // JSON string of dice results
+  string deposits = 6; // JSON string of deposits array
+}
+

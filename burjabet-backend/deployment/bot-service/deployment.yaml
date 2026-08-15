@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot-service
+  namespace: burja
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bot-service
+  template:
+    metadata:
+      labels:
+        app: bot-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: bot-service
+          image: bhanuburja.azurecr.io/burja-backend/bot-service:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: burja-config
+            - secretRef:
+                name: burja-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: wallets
+              mountPath: /app/wallets
+              readOnly: true
+      volumes:
+        - name: wallets
+          configMap:
+            name: bot-wallets
+
+

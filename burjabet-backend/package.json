@@ -1,0 +1,10 @@
+{
+  "name": "burja-backend",
+  "version": "1.0.0",
+  "description": "Burja Bet - Solana Gambling dApp Backend",
+  "private": true,
+  "scripts": {
+    "install:all": "cd services/auth-service && yarn install && cd ../blockchain-service && yarn install && cd ../game-engine-service && yarn install && cd ../gateway-service && yarn install && cd ../..",
+    "build:all": "cd services/auth-service && yarn build && cd ../blockchain-service && yarn build && cd ../game-engine-service && yarn build && cd ../gateway-service && yarn build && cd ../.."
+  }
+}

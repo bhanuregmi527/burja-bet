@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: auth-service-migrations
+  namespace: burja
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: auth-service-migrations
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      restartPolicy: OnFailure
+      containers:
+        - name: migrations
+          image: bhanuburja.azurecr.io/burja-backend/auth-service:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              node node_modules/typeorm/cli.js migration:run -d dist/data-source.js
+          envFrom:
+            - configMapRef:
+                name: burja-config
+            - secretRef:
+                name: burja-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

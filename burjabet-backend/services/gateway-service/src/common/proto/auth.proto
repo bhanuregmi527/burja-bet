@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package burja.auth.v1;
+
+message RequestHeader {
+  string RequestId = 1;
+  string DeviceId = 2;
+  string DeviceModel = 3;
+  string Timestamp = 4;
+  optional string IpAddress = 5;
+  optional string Location = 6;
+}
+
+message ResponseHeader {
+  string Status = 1;
+  string StatusCode = 2;
+  string Message = 3;
+  string TimeStamp = 4;
+  string RequestId = 5;
+  string ResponseTitle = 6;
+  string ResponseDescription = 7;
+}
+
+message ValidateTokenRequestBody {
+  string Token = 1;
+}
+
+message ValidateTokenRequest {
+  RequestHeader RequestHeader = 1;
+  ValidateTokenRequestBody Body = 2;
+}
+
+message ValidateTokenData {
+  bool Valid = 1;
+  optional string UserId = 2;
+  optional string WalletAddress = 3;
+}
+
+message ValidateTokenResponse {
+  ResponseHeader ResponseHeader = 1;
+  ValidateTokenData Response = 2;
+}
+
+message GetUserByIdRequestBody {
+  optional string UserId = 1;
+  optional string WalletAddress = 2;
+}
+
+message GetUserByIdRequest {
+  RequestHeader RequestHeader = 1;
+  GetUserByIdRequestBody Body = 2;
+}
+
+message User {
+  string Id = 1;
+  string WalletAddress = 2;
+  string BalanceSol = 3;
+  string CreatedAt = 4;
+}
+
+message GetUserByIdResponse {
+  ResponseHeader ResponseHeader = 1;
+  User Response = 2;
+}
+
+service AuthService {
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc GetUserById(GetUserByIdRequest) returns (GetUserByIdResponse);
+}

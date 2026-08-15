@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: burja-config
+  namespace: burja
+  labels:
+    app: burja-backend
+    tier: config
+data:
+  AUTH_GRPC_URL: "auth-service.burja.svc.cluster.local:50051"
+  AUTH_SERVICE_URL: "http://auth-service.burja.svc.cluster.local:3001"
+  GAME_ENGINE_GRPC_URL: "game-engine-service.burja.svc.cluster.local:50052"
+  GAME_ENGINE_SERVICE_URL: "http://game-engine-service.burja.svc.cluster.local:3003"
+  CORS_ORIGIN: "http://localhost:3000"
+  KAFKA_BROKERS: "kafka.burja.svc.cluster.local:9092"
+  DB_HOST: "pg-postgresql"
+  DB_PORT: "5432"
+  DB_USERNAME: "postgres"
+  DB_DATABASE: "burja"
+  REDIS_HOST: "redis-master"
+  REDIS_PORT: "6379"
+
+

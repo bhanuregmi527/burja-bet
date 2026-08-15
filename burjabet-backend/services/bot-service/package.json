@@ -1,0 +1,39 @@
+{
+  "name": "bot-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Burja bot service to keep vault active with automated devnet wallets",
+  "scripts": {
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "build": "nest build",
+    "generate:wallets": "ts-node scripts/generate-wallets.ts 15",
+    "airdrop": "ts-node scripts/airdrop.ts",
+    "distribute": "ts-node scripts/distribute.ts",
+    "distribute:env": "ts-node scripts/distribute-from-env.ts"
+  },
+  "dependencies": {
+    "@nestjs/axios": "^3.1.1",
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/config": "^3.1.1",
+    "@nestjs/core": "^10.3.0",
+    "@nestjs/platform-express": "^10.3.0",
+    "@solana/web3.js": "^1.87.6",
+    "axios": "^1.6.8",
+    "bs58": "^5.0.0",
+    "reflect-metadata": "^0.1.13",
+    "rxjs": "^7.8.1",
+    "socket.io-client": "^4.7.5",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.2.1",
+    "@swc/cli": "^0.5.0",
+    "@swc/core": "^1.15.4",
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  }
+}

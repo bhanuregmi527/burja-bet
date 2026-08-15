@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: game-engine-service
+  namespace: burja
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: game-engine-service
+  template:
+    metadata:
+      labels:
+        app: game-engine-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+      - name: game-engine-service
+        image: bhanuburja.azurecr.io/burja-backend/game-engine-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3003
+          name: http
+        - containerPort: 50052
+          name: grpc
+        envFrom:
+        - configMapRef:
+            name: burja-config
+        - secretRef:
+            name: burja-secrets
+        env:
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: burja-config
+              key: KAFKA_BROKERS
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 750m
+            memory: 512Mi
+        livenessProbe:
+          tcpSocket:
+            port: 3003
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 3003
+          initialDelaySeconds: 10
+          periodSeconds: 5

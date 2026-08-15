@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blockchain-service
+  namespace: burja
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blockchain-service
+  template:
+    metadata:
+      labels:
+        app: blockchain-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: blockchain-service
+          image: bhanuburja.azurecr.io/burja-backend/blockchain-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3002
+              name: http
+          envFrom:
+            - configMapRef:
+                name: burja-config
+            - secretRef:
+                name: burja-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 750m
+              memory: 512Mi
+          livenessProbe:
+            tcpSocket:
+              port: 3002
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 3002
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+

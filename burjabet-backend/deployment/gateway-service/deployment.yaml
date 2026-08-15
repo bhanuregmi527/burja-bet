@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-service
+  namespace: burja
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-service
+  template:
+    metadata:
+      labels:
+        app: gateway-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+      - name: gateway-service
+        image: bhanuburja.azurecr.io/burja-backend/gateway-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3004
+          name: http
+        envFrom:
+        - configMapRef:
+            name: burja-config
+        - secretRef:
+            name: burja-secrets
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 750m
+            memory: 512Mi
+        livenessProbe:
+          tcpSocket:
+            port: 3004
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 3004
+          initialDelaySeconds: 10
+          periodSeconds: 5
